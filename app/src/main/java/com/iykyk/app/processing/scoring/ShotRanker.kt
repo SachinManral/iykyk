@@ -1,0 +1,92 @@
+package com.iykyk.app.processing.scoring
+
+import com.iykyk.app.data.model.DetectedFaceInfo
+import kotlin.math.abs
+
+object ShotRanker {
+
+    fun rankCandidateShots(detections: List<DetectedFaceInfo>) {
+        if (detections.isEmpty()) {
+            return
+        }
+
+        for (det in detections) {
+            val frontal = computeFrontalityScore(det.headEulerAngleX, det.headEulerAngleY)
+            val sharp = computeSharpnessScore(det.sharpnessScore)
+            val eyes = computeEyesOpenScore(det.leftEyeOpenProbability, det.rightEyeOpenProbability)
+            val expression = computeExpressionScore(det.smilingProbability)
+            val framing = computeFramingScore(det)
+
+            val score = 0.25f * frontal + 0.25f * sharp + 0.20f * eyes + 0.15f * expression + 0.10f * framing
+            det.qualityScore = score.coerceIn(0f, 1f)
+        }
+
+        val sorted = detections.sortedBy { it.frameTimestampMs }
+        val smoothed = FloatArray(sorted.size)
+
+        for (i in sorted.indices) {
+            val center = sorted[i].frameTimestampMs
+            var sum = 0f
+            var count = 0
+
+            for (j in sorted.indices) {
+                if (abs(sorted[j].frameTimestampMs - center) <= 350L) {
+                    sum += sorted[j].qualityScore
+                    count++
+                }
+            }
+
+            val average = if (count > 0) sum / count else sorted[i].qualityScore
+            smoothed[i] = sorted[i].qualityScore * 0.95f + average * 0.05f
+        }
+
+        sorted.forEachIndexed { index, detection ->
+            detection.qualityScore = smoothed[index].coerceIn(0f, 1f)
+        }
+    }
+
+    private fun computeFramingScore(det: DetectedFaceInfo): Float {
+        val frameWidth = det.frameWidth.toFloat()
+        val frameHeight = det.frameHeight.toFloat()
+        if (frameWidth <= 0f || frameHeight <= 0f) {
+            return 0.5f
+        }
+
+        val box = det.boundingBox
+        val marginX = frameWidth * 0.05f
+        val marginY = frameHeight * 0.05f
+        var score = 1f
+
+        if (box.left < marginX || box.right > frameWidth - marginX) {
+            score -= 0.3f
+        }
+        if (box.top < marginY || box.bottom > frameHeight - marginY) {
+            score -= 0.3f
+        }
+
+        return score.coerceIn(0.2f, 1f)
+    }
+
+    private fun computeFrontalityScore(pitch: Float, yaw: Float): Float {
+        val totalDeviation = abs(pitch) + abs(yaw)
+        return (1.0f - (totalDeviation / 55.0f)).coerceIn(0f, 1f)
+    }
+
+    private fun computeSharpnessScore(variance: Float): Float {
+        return (variance / 150.0f).coerceIn(0f, 1f)
+    }
+
+    private fun computeEyesOpenScore(leftEyeProb: Float?, rightEyeProb: Float?): Float {
+        val left = leftEyeProb ?: 0.7f
+        val right = rightEyeProb ?: 0.7f
+        if (left < 0.35f || right < 0.35f) {
+            return 0.15f
+        }
+        return ((left + right) / 2f).coerceIn(0f, 1f)
+    }
+
+    private fun computeExpressionScore(smileProb: Float?): Float {
+        val smile = smileProb ?: 0.5f
+        return (0.5f + (0.5f * smile)).coerceIn(0f, 1f)
+    }
+}
