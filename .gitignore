@@ -15,8 +15,9 @@ local.properties
 .agents
 *.hprof
 
-# Media & sample videos (large binary assets)
+# Media & sample assets
 Sample Videos/
+Sample UI/
 *.mp4
 *.MOV
 *.avi
