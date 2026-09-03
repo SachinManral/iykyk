@@ -1,0 +1,22 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+*.apk
+*.aab
+.kotlin
+.agents
+*.hprof
+
+# Media & sample videos (large binary assets)
+Sample Videos/
+*.mp4
+*.MOV
+*.avi
