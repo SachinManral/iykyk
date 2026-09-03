@@ -1,0 +1,278 @@
+package com.iykyk.app.processing.video
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.RectF
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import com.iykyk.app.data.model.AppearanceSegment
+import com.iykyk.app.data.model.DetectedFaceInfo
+import com.iykyk.app.data.model.PersonIdentity
+import com.iykyk.app.data.model.PipelineProgress
+import com.iykyk.app.data.model.PipelineStage
+import com.iykyk.app.processing.clustering.AppearanceSegmenter
+import com.iykyk.app.processing.clustering.IdentityClusterer
+import com.iykyk.app.processing.detector.FaceAligner
+import com.iykyk.app.processing.detector.MLKitFaceDetector
+import com.iykyk.app.processing.embedder.FaceEmbedder
+import com.iykyk.app.processing.scoring.ShotRanker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
+
+class VideoProcessor(private val context: Context) {
+
+    private val frameExtractor = VideoFrameExtractor(context)
+
+    data class AnalysisResult(
+        val videoUri: Uri,
+        val videoTitle: String,
+        val durationMs: Long,
+        val people: List<PersonIdentity>,
+        val totalAppearances: Int,
+        val allDetections: List<DetectedFaceInfo>
+    )
+
+    fun processVideo(
+        videoUri: Uri,
+        videoTitle: String = "Selected Video"
+    ): Flow<Pair<PipelineProgress, AnalysisResult?>> = flow {
+        emit(
+            PipelineProgress(
+                stage = PipelineStage.READING_VIDEO,
+                progressPercent = 5,
+                statusMessage = "Reading video metadata..."
+            ) to null
+        )
+
+        val metadata = frameExtractor.extractMetadata(videoUri)
+        val durationMs = metadata.durationMs.coerceAtLeast(1000L)
+
+        // 5 FPS sampling rate
+        val sampleTimestamps = frameExtractor.generateSamplingTimestamps(
+            durationMs = durationMs,
+            baseIntervalMs = 200L
+        )
+
+        emit(
+            PipelineProgress(
+                stage = PipelineStage.DETECTING_FACES,
+                progressPercent = 15,
+                statusMessage = "Detecting faces across ${sampleTimestamps.size} frames..."
+            ) to null
+        )
+
+        val allDetections = mutableListOf<DetectedFaceInfo>()
+        val discoveredAvatars = mutableListOf<Bitmap>()
+
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(context, videoUri)
+
+        val faceDetector = MLKitFaceDetector()
+        val faceEmbedder = FaceEmbedder(context)
+
+        try {
+            val totalFrames = sampleTimestamps.size
+            for ((index, timestampMs) in sampleTimestamps.withIndex()) {
+                if (!coroutineContext.isActive) break
+
+                val frameBitmap = frameExtractor.getFrameAt(
+                    retriever = retriever,
+                    timestampMs = timestampMs,
+                    targetWidth = 540,
+                    targetHeight = 960
+                ) ?: continue
+
+                val detectedFaces = faceDetector.detectFaces(frameBitmap, timestampMs)
+
+                for (face in detectedFaces) {
+                    // Face-level quality gate
+                    if (face.sharpnessScore < 10f) {
+                        continue
+                    }
+
+                    val alignedFace = FaceAligner.alignFace(
+                        sourceBitmap = frameBitmap,
+                        boundingBox = face.boundingBox,
+                        leftEye = face.leftEye,
+                        rightEye = face.rightEye
+                    ) ?: continue
+
+                    val embedding = try {
+                        faceEmbedder.extractEmbedding(alignedFace)
+                    } finally {
+                        alignedFace.recycle()
+                    }
+
+                    if (embedding.isEmpty()) {
+                        continue
+                    }
+
+                    val completeFace = face.copy(embedding = embedding)
+                    allDetections.add(completeFace)
+
+                    if (discoveredAvatars.size < 6) {
+                        val avatar = FaceAligner.alignFace(
+                            sourceBitmap = frameBitmap,
+                            boundingBox = completeFace.boundingBox,
+                            leftEye = completeFace.leftEye,
+                            rightEye = completeFace.rightEye
+                        )
+                        if (avatar != null) {
+                            val avatarCopy = Bitmap.createScaledBitmap(avatar, 96, 96, true)
+                            avatar.recycle()
+                            discoveredAvatars.add(avatarCopy)
+                        }
+                    }
+                }
+                frameBitmap.recycle()
+
+                if (index % 4 == 0 || index == totalFrames - 1) {
+                    val progress = 15 + ((index.toFloat() / totalFrames) * 35f).toInt()
+                    emit(
+                        PipelineProgress(
+                            stage = PipelineStage.DETECTING_FACES,
+                            progressPercent = progress.coerceIn(15, 50),
+                            statusMessage = "Found ${allDetections.size} usable faces...",
+                            detectedFacesCount = allDetections.size,
+                            discoveredAvatars = discoveredAvatars.toList()
+                        ) to null
+                    )
+                }
+            }
+
+            // Cluster tracklets into distinct person identities
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.GROUPING_IDENTITIES,
+                    progressPercent = 55,
+                    statusMessage = "Separating people...",
+                    detectedFacesCount = allDetections.size,
+                    discoveredAvatars = discoveredAvatars.toList()
+                ) to null
+            )
+
+            val clusterer = IdentityClusterer(distanceThreshold = 0.22f)
+            val faceClusters = clusterer.clusterFaces(allDetections)
+
+            // Segment continuous appearances per person
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.COUNTING_APPEARANCES,
+                    progressPercent = 70,
+                    statusMessage = "Counting appearances...",
+                    detectedFacesCount = allDetections.size,
+                    discoveredPeopleCount = faceClusters.size,
+                    discoveredAvatars = discoveredAvatars.toList()
+                ) to null
+            )
+
+            val segmenter = AppearanceSegmenter(
+                maxContinuityGapMs = 600L,
+                minDetectionsPerSegment = 1
+            )
+            val personIdentities = mutableListOf<PersonIdentity>()
+            var totalAppearancesCount = 0
+
+            // Select best representative portrait and time ranges
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.CHOOSING_BEST_MOMENTS,
+                    progressPercent = 85,
+                    statusMessage = "Selecting best representative moments...",
+                    detectedFacesCount = allDetections.size,
+                    discoveredPeopleCount = faceClusters.size,
+                    discoveredAvatars = discoveredAvatars.toList()
+                ) to null
+            )
+
+            for ((clusterIdx, clusterDetections) in faceClusters.withIndex()) {
+                ShotRanker.rankCandidateShots(clusterDetections)
+
+                val appearances = segmenter.segmentAppearances(clusterDetections)
+                totalAppearancesCount += appearances.size
+
+                val bestDetection = clusterDetections.maxByOrNull { it.qualityScore } ?: continue
+
+                val fullFrame = frameExtractor.getFrameAt(retriever, bestDetection.frameTimestampMs)
+                val portraitCrop = fullFrame?.let {
+                    extractGenerousPortraitCrop(
+                        fullFrame = it,
+                        faceBox = bestDetection.boundingBox,
+                        sourceWidth = bestDetection.frameWidth,
+                        sourceHeight = bestDetection.frameHeight
+                    )
+                }
+                fullFrame?.recycle()
+
+                val avatar = portraitCrop?.let {
+                    Bitmap.createScaledBitmap(it, 112, 112, true)
+                }
+
+                val personLabel = "Person ${('A'.code + clusterIdx).toChar()}"
+                val person = PersonIdentity(
+                    id = clusterIdx + 1,
+                    label = personLabel,
+                    appearances = appearances,
+                    representativeShotTimestampMs = bestDetection.frameTimestampMs,
+                    representativeQualityScore = bestDetection.qualityScore,
+                    representativePortraitBitmap = portraitCrop,
+                    avatarThumbnailBitmap = avatar
+                )
+                personIdentities.add(person)
+            }
+
+            val finalResult = AnalysisResult(
+                videoUri = videoUri,
+                videoTitle = videoTitle,
+                durationMs = durationMs,
+                people = personIdentities,
+                totalAppearances = totalAppearancesCount,
+                allDetections = allDetections
+            )
+
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.CHOOSING_BEST_MOMENTS,
+                    progressPercent = 100,
+                    statusMessage = "Found ${personIdentities.size} people across $totalAppearancesCount appearances",
+                    detectedFacesCount = allDetections.size,
+                    discoveredPeopleCount = personIdentities.size,
+                    discoveredAvatars = discoveredAvatars.toList()
+                ) to finalResult
+            )
+
+        } finally {
+            retriever.release()
+            faceDetector.close()
+            faceEmbedder.close()
+        }
+    }.flowOn(Dispatchers.Default)
+
+    private fun extractGenerousPortraitCrop(
+        fullFrame: Bitmap,
+        faceBox: RectF,
+        sourceWidth: Int,
+        sourceHeight: Int
+    ): Bitmap {
+        val scaleX = if (sourceWidth > 0) fullFrame.width.toFloat() / sourceWidth.toFloat() else 1f
+        val scaleY = if (sourceHeight > 0) fullFrame.height.toFloat() / sourceHeight.toFloat() else 1f
+
+        val centerX = faceBox.centerX() * scaleX
+        val centerY = faceBox.centerY() * scaleY
+        val faceWidth = faceBox.width() * scaleX
+        val faceHeight = faceBox.height() * scaleY
+
+        val faceDimension = maxOf(faceWidth, faceHeight)
+        val cropWidth = (faceDimension * 2.4f).toInt().coerceIn(120, fullFrame.width)
+        val cropHeight = (cropWidth * 1.33f).toInt().coerceIn(160, fullFrame.height)
+
+        val left = (centerX - (cropWidth / 2f)).toInt().coerceIn(0, fullFrame.width - cropWidth)
+        val top = (centerY - (cropHeight * 0.45f)).toInt().coerceIn(0, fullFrame.height - cropHeight)
+
+        return Bitmap.createBitmap(fullFrame, left, top, cropWidth, cropHeight)
+    }
+}
