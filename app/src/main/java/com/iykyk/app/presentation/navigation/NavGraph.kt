@@ -55,6 +55,14 @@ fun IykykNavGraph(
                 onBackClick = {
                     navController.popBackStack()
                 },
+                onHomeClick = {
+                    navController.navigate(Destinations.HOME) {
+                        popUpTo(Destinations.HOME) { inclusive = true }
+                    }
+                },
+                onCreateCollageClick = {
+                    navController.navigate(Destinations.SELECT_VIDEO)
+                },
                 onOpenCollageClick = {
                     navController.navigate(Destinations.COLLAGE_RESULT)
                 }
