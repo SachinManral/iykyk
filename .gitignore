@@ -1,21 +1,29 @@
-# Build files & outputs
+# Gradle and build outputs
 .gradle/
 build/
 **/build/
-/build
-/app/build
-/captures
-.externalNativeBuild/
-.cxx/
 *.apk
 *.ap_
 *.aab
 *.dex
 *.class
 *.hprof
-*.pyc
+captures/
+.cxx/
+.externalNativeBuild/
+lint/
+reports/
+test-results/
 
-# IDEs & editors
+# Local configuration and keys
+local.properties
+secrets.properties
+google-services.json
+*.keystore
+*.jks
+*.key
+
+# IDE and editor files
 .idea/
 *.iml
 *.ipr
@@ -25,29 +33,25 @@ build/
 .project
 .classpath
 .settings/
-*.swp
-*~
-*.bak
+.navigation/
 
-# Local secrets & credentials
-local.properties
-/local.properties
-*.key
-*.keystore
-*.jks
-secrets.properties
-
-# OS files
+# OS and temporary files
 .DS_Store
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+*.log
+*.tmp
+*.temp
+*.swp
+*.bak
+*~
 
-# Agent & AI workspace files
+# AI agent workspace files
 .agents/
 .gemini/
 
-# Large test videos & sample assets
+# Sample and test media
 Sample Videos/
 Sample UI/
 *.mp4
