@@ -109,16 +109,14 @@ enum class HistoryFilterTab(val displayName: String) {
 }
 
 @Composable
-fun HistoryScreen(
+fun HistoryContent(
     viewModel: MainViewModel,
-    onBackClick: () -> Unit,
-    onHomeClick: () -> Unit,
     onCreateCollageClick: () -> Unit,
-    onOpenCollageClick: (CollageResult) -> Unit
+    onOpenCollageClick: (CollageResult) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val recentCollages by viewModel.recentCollages.collectAsState()
     val favoriteCollageIds by viewModel.favoriteCollageIds.collectAsState()
-    var selectedNavIndex by remember { mutableIntStateOf(1) } // Active tab = History (index 1)
     var currentSortOption by remember { mutableStateOf(HistorySortOption.NEWEST) }
     var selectedFilterTab by remember { mutableStateOf(HistoryFilterTab.RECENT) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
@@ -155,99 +153,17 @@ fun HistoryScreen(
         }
     }
 
-    Scaffold(
-        containerColor = BgDark,
-        bottomBar = {
-            // Floating Bottom Navigation Bar matching Home screen
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 42.dp, vertical = 14.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .shadow(22.dp, RoundedCornerShape(36.dp), ambientColor = Color.Black, spotColor = Color(0x33000000))
-                        .clip(RoundedCornerShape(36.dp))
-                        .background(Color(0xCC150E28))
-                        .border(0.8.dp, Color(0x1FFFFFFF), RoundedCornerShape(36.dp))
-                        .padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val navItems = listOf(
-                            Triple("Home", R.drawable.ic_nav_home, 0),
-                            Triple("History", R.drawable.ic_nav_history, 1),
-                            Triple("Profile", R.drawable.ic_nav_profile, 2)
-                        )
-
-                        navItems.forEach { (label, iconRes, index) ->
-                            val isSelected = selectedNavIndex == index
-
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        selectedNavIndex = index
-                                        if (index == 0) {
-                                            onHomeClick()
-                                        }
-                                    }
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) Color(0x33FF3B81) else Color.Transparent
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = iconRes),
-                                        contentDescription = label,
-                                        tint = if (isSelected) PrimaryPink else Color(0x8CFFFFFF),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (isSelected) PrimaryPink else Color(0x73FFFFFF)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(BackgroundGradient)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(BackgroundGradient)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Header Area matching reference image
+            // Header Area matching reference image
                 item {
                     Column(
                         modifier = Modifier
@@ -521,7 +437,6 @@ fun HistoryScreen(
                 }
             }
         }
-    }
 
     // Delete Confirmation Dialog
     if (collageToDelete != null) {

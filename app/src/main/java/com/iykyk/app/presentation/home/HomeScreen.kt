@@ -1,5 +1,7 @@
 package com.iykyk.app.presentation.home
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.iykyk.app.R
 import com.iykyk.app.data.model.CollageResult
 import com.iykyk.app.presentation.MainViewModel
+import com.iykyk.app.presentation.history.HistoryContent
 import com.iykyk.app.presentation.theme.BackgroundGradient
 import com.iykyk.app.presentation.theme.BgDark
 import com.iykyk.app.presentation.theme.PrimaryGradient
@@ -78,11 +81,15 @@ import com.iykyk.app.presentation.theme.TextSecondary
 fun HomeScreen(
     viewModel: MainViewModel,
     onCreateCollageClick: () -> Unit,
-    onOpenCollageClick: (CollageResult) -> Unit,
-    onSeeAllClick: () -> Unit
+    onOpenCollageClick: (CollageResult) -> Unit
 ) {
     val recentCollages by viewModel.recentCollages.collectAsState()
     var selectedNavIndex by remember { mutableIntStateOf(0) }
+
+    // Intercept back button on History (index 1) or Profile (index 2) to return to Home (index 0)
+    BackHandler(enabled = selectedNavIndex != 0) {
+        selectedNavIndex = 0
+    }
 
     Scaffold(
         containerColor = BgDark,
@@ -128,9 +135,6 @@ fun HomeScreen(
                                         indication = null
                                     ) {
                                         selectedNavIndex = index
-                                        if (index == 1) {
-                                            onSeeAllClick()
-                                        }
                                     }
                                     .padding(vertical = 2.dp)
                             ) {
@@ -168,200 +172,234 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(BackgroundGradient)
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(vertical = 14.dp)
-            ) {
-                // 1. Header: Logo & Settings
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_iykyk_logo),
-                            contentDescription = "iykyk logo",
+            Crossfade(targetState = selectedNavIndex, label = "TabCrossfade") { currentTab ->
+                when (currentTab) {
+                    0 -> {
+                        LazyColumn(
                             modifier = Modifier
-                                .width(95.dp)
-                                .height(45.dp),
-                            contentScale = ContentScale.Fit
-                        )
-
-                        IconButton(onClick = {}) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-
-                // 2. Hero Typography
-                item {
-                    Column {
-                        Text(
-                            text = "Moments fade.",
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            lineHeight = 38.sp
-                        )
-                        Text(
-                            text = "People don't.",
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = TextAccentPink,
-                            lineHeight = 40.sp
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "We find everyone in your videos and create a beautiful collage you can keep.",
-                            fontSize = 14.sp,
-                            color = TextSecondary,
-                            lineHeight = 20.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-
-                // 3. Static Sample Showcase Card (Hardcoded sample.png, non-clickable)
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(SurfaceCard)
-                            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(22.dp))
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.sample_collage_card),
-                            contentDescription = "Sample Collage Preview",
-                            modifier = Modifier.fillMaxWidth(),
-                            contentScale = ContentScale.FillWidth
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(26.dp))
-                }
-
-                // 4. "Recent Collages" Section Header with "See all"
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Recent Collages",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        if (recentCollages.isNotEmpty()) {
-                            Text(
-                                text = "See all",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFA78BFA),
-                                modifier = Modifier.clickable { onSeeAllClick() }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                }
-
-                // 5. Horizontal Scrolling Row of Real Generated Dual-Segment Cards
-                item {
-                    if (recentCollages.isNotEmpty()) {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
+                                .fillMaxSize()
+                                .padding(paddingValues)
+                                .padding(horizontal = 20.dp),
+                            contentPadding = PaddingValues(vertical = 14.dp)
                         ) {
-                            items(recentCollages) { collage ->
-                                DualSegmentCollageCard(
-                                    collage = collage,
-                                    onClick = {
-                                        viewModel.openCollage(collage)
-                                        onOpenCollageClick(collage)
+                            // 1. Header: Logo & Settings
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_iykyk_logo),
+                                        contentDescription = "iykyk logo",
+                                        modifier = Modifier
+                                            .width(95.dp)
+                                            .height(45.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+
+                                    IconButton(onClick = { selectedNavIndex = 2 }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = "Settings",
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
-                                )
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
+
+                            // 2. Hero Typography
+                            item {
+                                Column {
+                                    Text(
+                                        text = "Moments fade.",
+                                        fontSize = 34.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary,
+                                        lineHeight = 38.sp
+                                    )
+                                    Text(
+                                        text = "People don't.",
+                                        fontSize = 34.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = TextAccentPink,
+                                        lineHeight = 40.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "We find everyone in your videos and create a beautiful collage you can keep.",
+                                        fontSize = 14.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 20.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
+
+                            // 3. Static Sample Showcase Card (Hardcoded sample.png, non-clickable)
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(22.dp))
+                                        .background(SurfaceCard)
+                                        .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(22.dp))
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.sample_collage_card),
+                                        contentDescription = "Sample Collage Preview",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentScale = ContentScale.FillWidth
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(26.dp))
+                            }
+
+                            // 4. "Recent Collages" Section Header with "See all"
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Recent Collages",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    if (recentCollages.isNotEmpty()) {
+                                        Text(
+                                            text = "See all",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFA78BFA),
+                                            modifier = Modifier.clickable { selectedNavIndex = 1 }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
+                            }
+
+                            // 5. Horizontal Scrolling Row of Real Generated Dual-Segment Cards
+                            item {
+                                if (recentCollages.isNotEmpty()) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(recentCollages) { collage ->
+                                            DualSegmentCollageCard(
+                                                collage = collage,
+                                                onClick = {
+                                                    viewModel.openCollage(collage)
+                                                    onOpenCollageClick(collage)
+                                                }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    // Clean empty placeholder (No fake numbers)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(SurfaceCard.copy(alpha = 0.5f))
+                                            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(18.dp))
+                                            .padding(vertical = 22.dp, horizontal = 16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Your created collages will appear here",
+                                            fontSize = 13.sp,
+                                            color = TextMuted,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(26.dp))
+                            }
+
+                            // 6. "+ Create New Collage" CTA Button
+                            item {
+                                Button(
+                                    onClick = onCreateCollageClick,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .shadow(16.dp, RoundedCornerShape(28.dp), ambientColor = PrimaryPurple, spotColor = PrimaryPink),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    contentPadding = PaddingValues(0.dp),
+                                    shape = RoundedCornerShape(28.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(PrimaryGradient),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Create New Collage",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
                             }
                         }
-                    } else {
-                        // Clean empty placeholder (No fake numbers)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(SurfaceCard.copy(alpha = 0.5f))
-                                .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(18.dp))
-                                .padding(vertical = 22.dp, horizontal = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Your created collages will appear here",
-                                fontSize = 13.sp,
-                                color = TextMuted,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
                     }
-                    Spacer(modifier = Modifier.height(26.dp))
-                }
-
-                // 6. "+ Create New Collage" CTA Button
-                item {
-                    Button(
-                        onClick = onCreateCollageClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .shadow(16.dp, RoundedCornerShape(28.dp), ambientColor = PrimaryPurple, spotColor = PrimaryPink),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                        contentPadding = PaddingValues(0.dp),
-                        shape = RoundedCornerShape(28.dp)
-                    ) {
+                    1 -> {
+                        HistoryContent(
+                            viewModel = viewModel,
+                            onCreateCollageClick = onCreateCollageClick,
+                            onOpenCollageClick = { collage ->
+                                viewModel.openCollage(collage)
+                                onOpenCollageClick(collage)
+                            },
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                    2 -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(PrimaryGradient),
+                                .padding(paddingValues),
                             contentAlignment = Alignment.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Create New Collage",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
+                            Text(
+                                text = "Coming Soon",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondary
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
         }
     }
 }
+
+
 
 /**
  * Real Dual-Segment Collage Card (Left: N people, Right: N apps.)
@@ -463,3 +501,5 @@ private fun DualSegmentCollageCard(
         }
     }
 }
+
+
