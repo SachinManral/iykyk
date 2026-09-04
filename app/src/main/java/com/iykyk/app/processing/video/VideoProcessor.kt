@@ -189,7 +189,7 @@ class VideoProcessor(private val context: Context) {
                 ) to null
             )
 
-            val clusterer = IdentityClusterer(distanceThreshold = 0.58f)
+            val clusterer = IdentityClusterer(distanceThreshold = 0.64f)
             val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
 
             // 7. Select best representative moments and compose person identities

@@ -11,7 +11,7 @@ import kotlin.math.sqrt
  * and Co-Occurrence Conflict Constraints for ArcFace 512-D embeddings.
  */
 class IdentityClusterer(
-    private val distanceThreshold: Float = 0.60f
+    private val distanceThreshold: Float = 0.64f
 ) {
 
     data class PersonCluster(
