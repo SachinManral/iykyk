@@ -36,9 +36,9 @@ class IdentityClustererTest {
 
     @Test
     fun testCoOccurrenceConflictPreventsMerge() {
-        val clusterer = IdentityClusterer(distanceThreshold = 0.44f)
+        val clusterer = IdentityClusterer(distanceThreshold = 0.60f)
 
-        // Person A and Person B detected at the EXACT same frame timestamp (1000L)
+        // Person A and Person B detected together across 2 frame timestamps
         val person1Embedding = FloatArray(512).apply { this[0] = 1.0f }
         val similarEmbedding = FloatArray(512).apply {
             this[0] = 0.95f
@@ -46,8 +46,10 @@ class IdentityClustererTest {
         }
 
         val detections = listOf(
-            createDetection(timestamp = 1000L, trackingId = 1, embedding = person1Embedding),
-            createDetection(timestamp = 1000L, trackingId = 2, embedding = similarEmbedding)
+            createDetection(timestamp = 1000L, trackingId = 1, embedding = person1Embedding, box = RectF(50f, 50f, 250f, 250f)),
+            createDetection(timestamp = 1000L, trackingId = 2, embedding = similarEmbedding, box = RectF(400f, 50f, 600f, 250f)),
+            createDetection(timestamp = 1200L, trackingId = 1, embedding = person1Embedding, box = RectF(50f, 50f, 250f, 250f)),
+            createDetection(timestamp = 1200L, trackingId = 2, embedding = similarEmbedding, box = RectF(400f, 50f, 600f, 250f))
         )
 
         val clusters = clusterer.clusterFaces(detections)
@@ -66,11 +68,12 @@ class IdentityClustererTest {
     private fun createDetection(
         timestamp: Long,
         trackingId: Int,
-        embedding: FloatArray
+        embedding: FloatArray,
+        box: RectF = RectF(100f, 100f, 300f, 300f)
     ): DetectedFaceInfo {
         return DetectedFaceInfo(
             frameTimestampMs = timestamp,
-            boundingBox = RectF(100f, 100f, 300f, 300f),
+            boundingBox = box,
             trackingId = trackingId,
             embedding = embedding,
             sharpnessScore = 50f,

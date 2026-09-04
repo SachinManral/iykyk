@@ -23,8 +23,7 @@ class MLKitFaceDetector : AutoCloseable {
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-            .enableTracking()
-            .setMinFaceSize(0.05f)
+            .setMinFaceSize(0.06f)
             .build()
 
         detector = FaceDetection.getClient(options)
@@ -37,9 +36,10 @@ class MLKitFaceDetector : AutoCloseable {
         try {
             val inputImage = InputImage.fromBitmap(frameBitmap, 0)
             val faces = Tasks.await(detector.process(inputImage))
-            faces.mapNotNull { face ->
+            val rawInfos = faces.mapNotNull { face ->
                 buildFaceInfo(face, frameBitmap, timestampMs)
             }
+            applyNonMaximumSuppression(rawInfos, iouThreshold = 0.35f)
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -59,20 +59,44 @@ class MLKitFaceDetector : AutoCloseable {
             bounds.bottom.toFloat().coerceIn(0f, frameBitmap.height.toFloat())
         )
 
-        if (rect.width() < 40f || rect.height() < 40f) {
+        val width = rect.width()
+        val height = rect.height()
+
+        if (width < 45f || height < 45f) {
+            return null
+        }
+
+        // Geometric aspect ratio validation (filters dual-face collisions or artifacts)
+        val aspect = width / height
+        if (aspect < 0.55f || aspect > 1.45f) {
+            return null
+        }
+
+        val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position?.let { PointF(it.x, it.y) }
+        val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.let { PointF(it.x, it.y) }
+
+        // Must have both eyes detected for ArcFace alignment
+        if (leftEye == null || rightEye == null) {
+            return null
+        }
+
+        // Validate eye span and horizontal orientation
+        val eyeDistance = kotlin.math.abs(leftEye.x - rightEye.x)
+        val eyeVerticalDiff = kotlin.math.abs(leftEye.y - rightEye.y)
+        if (eyeDistance < width * 0.15f || eyeDistance > width * 0.85f || eyeVerticalDiff > height * 0.40f) {
             return null
         }
 
         val left = rect.left.toInt().coerceIn(0, frameBitmap.width - 1)
         val top = rect.top.toInt().coerceIn(0, frameBitmap.height - 1)
-        val width = rect.width().toInt().coerceAtMost(frameBitmap.width - left)
-        val height = rect.height().toInt().coerceAtMost(frameBitmap.height - top)
+        val cropW = width.toInt().coerceAtMost(frameBitmap.width - left)
+        val cropH = height.toInt().coerceAtMost(frameBitmap.height - top)
 
-        if (width < 40 || height < 40) {
+        if (cropW < 40 || cropH < 40) {
             return null
         }
 
-        val faceCrop = Bitmap.createBitmap(frameBitmap, left, top, width, height)
+        val faceCrop = Bitmap.createBitmap(frameBitmap, left, top, cropW, cropH)
         val sharpness = BlurDetector.computeLaplacianVariance(faceCrop)
         faceCrop.recycle()
 
@@ -80,8 +104,8 @@ class MLKitFaceDetector : AutoCloseable {
             frameTimestampMs = timestampMs,
             boundingBox = rect,
             trackingId = face.trackingId,
-            leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position?.let { PointF(it.x, it.y) },
-            rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.let { PointF(it.x, it.y) },
+            leftEye = leftEye,
+            rightEye = rightEye,
             noseBase = face.getLandmark(FaceLandmark.NOSE_BASE)?.position?.let { PointF(it.x, it.y) },
             leftMouth = face.getLandmark(FaceLandmark.MOUTH_LEFT)?.position?.let { PointF(it.x, it.y) },
             rightMouth = face.getLandmark(FaceLandmark.MOUTH_RIGHT)?.position?.let { PointF(it.x, it.y) },
@@ -95,6 +119,43 @@ class MLKitFaceDetector : AutoCloseable {
             frameWidth = frameBitmap.width,
             frameHeight = frameBitmap.height
         )
+    }
+
+    private fun applyNonMaximumSuppression(
+        faces: List<DetectedFaceInfo>,
+        iouThreshold: Float
+    ): List<DetectedFaceInfo> {
+        if (faces.size <= 1) return faces
+
+        val sorted = faces.sortedByDescending { it.sharpnessScore }
+        val kept = mutableListOf<DetectedFaceInfo>()
+
+        for (face in sorted) {
+            val hasOverlap = kept.any { existing ->
+                computeIoU(face.boundingBox, existing.boundingBox) > iouThreshold
+            }
+            if (!hasOverlap) {
+                kept.add(face)
+            }
+        }
+        return kept
+    }
+
+    private fun computeIoU(b1: RectF, b2: RectF): Float {
+        val ix1 = maxOf(b1.left, b2.left)
+        val iy1 = maxOf(b1.top, b2.top)
+        val ix2 = minOf(b1.right, b2.right)
+        val iy2 = minOf(b1.bottom, b2.bottom)
+
+        val iw = (ix2 - ix1).coerceAtLeast(0f)
+        val ih = (iy2 - iy1).coerceAtLeast(0f)
+        val intersectionArea = iw * ih
+
+        val area1 = (b1.right - b1.left) * (b1.bottom - b1.top)
+        val area2 = (b2.right - b2.left) * (b2.bottom - b2.top)
+        val unionArea = (area1 + area2 - intersectionArea).coerceAtLeast(1f)
+
+        return (intersectionArea / unionArea).coerceIn(0f, 1f)
     }
 
     override fun close() {
