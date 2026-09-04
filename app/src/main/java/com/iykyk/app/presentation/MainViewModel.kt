@@ -56,11 +56,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _saveToastMessage = MutableStateFlow<String?>(null)
     val saveToastMessage: StateFlow<String?> = _saveToastMessage.asStateFlow()
 
+    private val prefs = application.getSharedPreferences("iykyk_favorites", Context.MODE_PRIVATE)
+    private val _favoriteCollageIds = MutableStateFlow<Set<Long>>(
+        prefs.getStringSet("favorite_ids", emptySet())?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+    )
+    val favoriteCollageIds: StateFlow<Set<Long>> = _favoriteCollageIds.asStateFlow()
+
     private var processingJob: Job? = null
 
     init {
         loadAvailableVideos()
         loadSavedCollages()
+    }
+
+    fun toggleFavorite(timestampMs: Long) {
+        val current = _favoriteCollageIds.value.toMutableSet()
+        if (current.contains(timestampMs)) {
+            current.remove(timestampMs)
+        } else {
+            current.add(timestampMs)
+        }
+        _favoriteCollageIds.value = current
+        prefs.edit().putStringSet("favorite_ids", current.map { it.toString() }.toSet()).apply()
+    }
+
+    fun isFavorite(timestampMs: Long): Boolean {
+        return _favoriteCollageIds.value.contains(timestampMs)
     }
 
     fun loadSavedCollages() {
@@ -71,7 +92,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadAvailableVideos() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val list = mutableListOf<VideoItem>()
 
             // 1. Load bundled sample videos from assets to local cache files
@@ -88,14 +109,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             fileName.contains("sample_3") -> "Sample 3.mp4"
                             else -> fileName
                         }
+                        val uri = Uri.fromFile(localFile)
+                        val meta = extractVideoMetadata(getApplication(), uri)
                         list.add(
                             VideoItem(
-                                uri = Uri.fromFile(localFile),
+                                uri = uri,
                                 title = displayName,
-                                durationText = "00:30",
-                                resolutionText = "1080×1920",
+                                durationText = meta.durationText,
+                                resolutionText = meta.resolutionText,
                                 dateText = "May ${20 - index}, 2026",
-                                isSample = true
+                                isSample = true,
+                                thumbnailBitmap = meta.thumbnail
                             )
                         )
                     }
@@ -132,18 +156,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun selectCustomVideoUri(uri: Uri, title: String = "Custom Video.mp4") {
-        val item = VideoItem(
-            uri = uri,
-            title = title,
-            durationText = "00:30",
-            resolutionText = "1080×1920",
-            dateText = "Today",
-            isSample = false
-        )
-        val updated = listOf(item) + _videoList.value.filter { it.uri != uri }
-        _videoList.value = updated
-        _selectedVideo.value = item
+    fun selectCustomVideoUri(uri: Uri, title: String? = null) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val resolvedTitle = title ?: queryFileName(getApplication(), uri)
+            val meta = extractVideoMetadata(getApplication(), uri)
+            val item = VideoItem(
+                uri = uri,
+                title = resolvedTitle,
+                durationText = meta.durationText,
+                resolutionText = meta.resolutionText,
+                dateText = "Today",
+                isSample = false,
+                thumbnailBitmap = meta.thumbnail
+            )
+            val updated = listOf(item) + _videoList.value.filter { it.uri != uri }
+            _videoList.value = updated
+            _selectedVideo.value = item
+        }
+    }
+
+    private data class ExtractedMeta(
+        val thumbnail: Bitmap?,
+        val durationText: String,
+        val resolutionText: String
+    )
+
+    private fun extractVideoMetadata(context: Context, uri: Uri): ExtractedMeta {
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val bitmap = retriever.getFrameAtTime(1000000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.frameAtTime
+            val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 30000L
+            val width = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) ?: "1080"
+            val height = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: "1920"
+
+            val totalSecs = (durationMs / 1000).coerceAtLeast(1)
+            val mins = totalSecs / 60
+            val secs = totalSecs % 60
+            val durationText = String.format("%02d:%02d", mins, secs)
+            val resolutionText = "${width} × ${height}"
+            ExtractedMeta(bitmap, durationText, resolutionText)
+        } catch (e: Exception) {
+            ExtractedMeta(null, "00:30", "1080 × 1920")
+        } finally {
+            try { retriever.release() } catch (e: Exception) {}
+        }
+    }
+
+    private fun queryFileName(context: Context, uri: Uri): String {
+        var name = "Uploaded Video.mp4"
+        try {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) {
+                        val str = it.getString(index)
+                        if (!str.isNullOrBlank()) name = str
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+        return name
     }
 
     fun startProcessing(onComplete: () -> Unit) {

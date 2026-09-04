@@ -2,7 +2,9 @@ package com.iykyk.app.presentation.select
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,9 +27,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -44,21 +52,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.iykyk.app.presentation.MainViewModel
-import com.iykyk.app.presentation.theme.AccentCyan
+import com.iykyk.app.presentation.VideoItem
 import com.iykyk.app.presentation.theme.BackgroundGradient
 import com.iykyk.app.presentation.theme.BgDark
 import com.iykyk.app.presentation.theme.PrimaryGradient
 import com.iykyk.app.presentation.theme.PrimaryPink
 import com.iykyk.app.presentation.theme.PrimaryPurple
-import com.iykyk.app.presentation.theme.SurfaceCard
-import com.iykyk.app.presentation.theme.SurfaceDark
-import com.iykyk.app.presentation.theme.SurfaceDarkStroke
-import com.iykyk.app.presentation.theme.SurfaceElevated
 import com.iykyk.app.presentation.theme.TextMuted
 import com.iykyk.app.presentation.theme.TextPrimary
 import com.iykyk.app.presentation.theme.TextSecondary
@@ -69,14 +78,33 @@ fun VideoSelectScreen(
     onBackClick: () -> Unit,
     onNextClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val videoList by viewModel.videoList.collectAsState()
     val selectedVideo by viewModel.selectedVideo.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+    // 1. System Photo/Video Gallery Picker (PhotoPicker / Media gallery)
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
+            viewModel.selectCustomVideoUri(uri)
+        }
+    }
+
+    // 2. System File Manager / Folder Browser (DocumentsUI / Storage Access Framework)
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                // Ignore if not persistable
+            }
             viewModel.selectCustomVideoUri(uri)
         }
     }
@@ -84,52 +112,108 @@ fun VideoSelectScreen(
     Scaffold(
         containerColor = BgDark,
         bottomBar = {
-            // Next Floating Pill Button
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 20.dp)
-            ) {
-                Button(
-                    onClick = onNextClick,
-                    enabled = selectedVideo != null,
+            // Floating Selected Video Bar at bottom
+            if (selectedVideo != null) {
+                val video = selectedVideo!!
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
-                        .shadow(16.dp, RoundedCornerShape(28.dp), ambientColor = PrimaryPurple, spotColor = PrimaryPink),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        disabledContainerColor = Color(0x334E3F78)
-                    ),
-                    contentPadding = PaddingValues(0.dp),
-                    shape = RoundedCornerShape(28.dp)
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .then(
-                                if (selectedVideo != null) Modifier.background(PrimaryGradient)
-                                else Modifier.background(PrimaryPurple.copy(alpha = 0.35f))
-                            ),
+                            .fillMaxWidth()
+                            .height(68.dp)
+                            .shadow(20.dp, RoundedCornerShape(34.dp), ambientColor = Color.Black, spotColor = Color(0x66000000))
+                            .clip(RoundedCornerShape(34.dp))
+                            .background(Color(0xF0150E28))
+                            .border(0.8.dp, Color(0x33FFFFFF), RoundedCornerShape(34.dp))
+                            .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Next",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (selectedVideo != null) Color.White else TextMuted
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = null,
-                                tint = if (selectedVideo != null) Color.White else TextMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            // Left: Thumbnail preview & selection info
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF1E1738))
+                                        .border(0.6.dp, Color(0x33FFFFFF), RoundedCornerShape(10.dp))
+                                ) {
+                                    if (video.thumbnailBitmap != null) {
+                                        Image(
+                                            bitmap = video.thumbnailBitmap.asImageBitmap(),
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(PrimaryPurple.copy(alpha = 0.4f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "1 video selected",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "${video.durationText} · ${video.resolutionText}",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+
+                            // Right: Next Button with gradient pill
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(PrimaryGradient)
+                                    .clickable { onNextClick() }
+                                    .padding(horizontal = 22.dp, vertical = 11.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Next",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -141,241 +225,428 @@ fun VideoSelectScreen(
                 .fillMaxSize()
                 .background(BackgroundGradient)
         ) {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 20.dp)
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header: Back Arrow & Centered Title
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = TextPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                // Header: Back Button and Centered Title
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Select Video",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Choose a video to analyze",
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                    }
-                    Spacer(modifier = Modifier.size(48.dp))
-                }
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = TextPrimary
+                            )
+                        }
 
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Pill Tabs: Videos, Gallery, Folders
-                val tabs = listOf("Videos", "Gallery", "Folders")
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(SurfaceDark)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    tabs.forEachIndexed { index, tabTitle ->
-                        val isSelected = selectedTab == index
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (isSelected) PrimaryPurple else Color.Transparent)
-                                .clickable {
-                                    selectedTab = index
-                                    if (index == 1) {
-                                        filePickerLauncher.launch("video/*")
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = tabTitle,
+                                text = "Select Video",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Choose a video to analyze",
                                 fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) Color.White else TextMuted
+                                color = TextMuted
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.size(40.dp))
+                    }
+                }
+
+                // Segmented Tabs: Videos, Gallery, Folders
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(Color(0xFF140F27))
+                            .border(0.8.dp, Color(0x22FFFFFF), RoundedCornerShape(26.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Videos Tab
+                        TabItem(
+                            label = "Videos",
+                            icon = Icons.Filled.PlayArrow,
+                            isSelected = selectedTab == 0,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            selectedTab = 0
+                        }
+
+                        // Gallery Tab (Native Gallery / Photos Picker)
+                        TabItem(
+                            label = "Gallery",
+                            icon = Icons.Outlined.Collections,
+                            isSelected = selectedTab == 1,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            selectedTab = 1
+                            galleryPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                            )
+                        }
+
+                        // Folders Tab (Native Storage / Document Browser)
+                        TabItem(
+                            label = "Folders",
+                            icon = Icons.Outlined.Folder,
+                            isSelected = selectedTab == 2,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            selectedTab = 2
+                            documentPickerLauncher.launch(arrayOf("video/*", "*/*"))
+                        }
+                    }
+                }
+
+                // Browse Phone Storage Banner (Directly opens device file/folder storage)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xFF1B1435),
+                                        Color(0xFF140E2A)
+                                    )
+                                )
+                            )
+                            .border(1.dp, Color(0x334B367C), RoundedCornerShape(20.dp))
+                            .clickable { documentPickerLauncher.launch(arrayOf("video/*", "*/*")) }
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(Color(0xFF5A2CE2)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Folder,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "Browse Phone Storage",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "Pick any video from your device",
+                                        fontSize = 12.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = Color(0xFFA59BC8),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                // Recent Videos Section Header
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Recent Videos",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
 
-                // Video List
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f)
+                        Text(
+                            text = "${videoList.size} videos",
+                            fontSize = 13.sp,
+                            color = TextMuted,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+                }
+
+                // Video Cards List
+                items(videoList, key = { it.uri.toString() }) { video ->
+                    val isSelected = selectedVideo?.uri == video.uri
+                    SelectableVideoCard(
+                        video = video,
+                        isSelected = isSelected,
+                        onClick = { viewModel.selectVideo(video) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clean Tab item for Segmented control
+ */
+@Composable
+private fun TabItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (isSelected) Color(0xFF6C3CE9) else Color.Transparent)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) Color.White else TextMuted,
+                modifier = Modifier.size(17.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) Color.White else TextMuted
+            )
+        }
+    }
+}
+
+/**
+ * Modern Selectable Video Item Card with Real Video Thumbnail and Radio Checkbox
+ */
+@Composable
+private fun SelectableVideoCard(
+    video: VideoItem,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (isSelected) Color(0xFF1C1538) else Color(0xFF16102D)
+            )
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) Color(0xFF6C3CE9) else Color(0x224B367C),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable { onClick() }
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Video Thumbnail Frame with duration badge
+                Box(
+                    modifier = Modifier
+                        .size(width = 100.dp, height = 64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF100B20))
                 ) {
-                    // Custom device video picker option
-                    item {
+                    if (video.thumbnailBitmap != null) {
+                        Image(
+                            bitmap = video.thumbnailBitmap.asImageBitmap(),
+                            contentDescription = video.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(SurfaceElevated)
-                                .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(20.dp))
-                                .clickable { filePickerLauncher.launch("video/*") }
-                                .padding(14.dp)
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF2A1C50), Color(0xFF16102E))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
-                                        .background(PrimaryPurple.copy(alpha = 0.25f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.FileOpen,
-                                        contentDescription = "Pick video",
-                                        tint = AccentCyan,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(14.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Browse Phone Storage...",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        text = "Pick any custom video from your camera roll",
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                }
-                            }
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
 
-                    // Pre-bundled test clips matching Sample UI
-                    items(videoList) { video ->
-                        val isSelected = selectedVideo?.uri == video.uri
+                    // Duration overlay on bottom-right of thumbnail
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(Color(0xCC000000))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = video.durationText,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(if (isSelected) SurfaceCard else SurfaceDark)
-                                .border(
-                                    width = if (isSelected) 1.5.dp else 1.dp,
-                                    color = if (isSelected) PrimaryPurple else SurfaceDarkStroke,
-                                    shape = RoundedCornerShape(22.dp)
-                                )
-                                .clickable { viewModel.selectVideo(video) }
-                                .padding(14.dp)
+                // Video Metadata Column
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = video.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Duration & Resolution Row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Video Thumbnail with Duration Badge & Wave Icon
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 68.dp, height = 68.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(SurfaceElevated)
-                                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.8f),
-                                        modifier = Modifier.size(28.dp)
-                                    )
+                            Icon(
+                                imageVector = Icons.Outlined.Schedule,
+                                contentDescription = null,
+                                tint = Color(0xFFA59BC8),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = video.durationText,
+                                fontSize = 11.sp,
+                                color = Color(0xFFA59BC8)
+                            )
+                        }
 
-                                    // Duration Overlay Pill
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .padding(bottom = 4.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xCC000000))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = video.durationText,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(14.dp))
-
-                                // Metadata
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = video.title,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "${video.durationText} · ${video.resolutionText}",
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = video.dateText,
-                                        fontSize = 11.sp,
-                                        color = TextMuted
-                                    )
-                                }
-
-                                // Selection Checkmark indicator
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isSelected) PrimaryPurple else Color.Transparent)
-                                        .border(
-                                            width = if (isSelected) 0.dp else 1.5.dp,
-                                            color = if (isSelected) Color.Transparent else TextMuted,
-                                            shape = CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AspectRatio,
+                                contentDescription = null,
+                                tint = Color(0xFFA59BC8),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = video.resolutionText,
+                                fontSize = 11.sp,
+                                color = Color(0xFFA59BC8)
+                            )
                         }
                     }
+
+                    // Date Row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CalendarToday,
+                            contentDescription = null,
+                            tint = Color(0xFFA59BC8),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = video.dateText,
+                            fontSize = 11.sp,
+                            color = Color(0xFFA59BC8)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Selection Checkbox / Radio
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) Color(0xFF6C3CE9) else Color.Transparent)
+                    .border(
+                        width = if (isSelected) 0.dp else 1.5.dp,
+                        color = if (isSelected) Color.Transparent else Color(0x44FFFFFF),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
                 }
             }
         }
