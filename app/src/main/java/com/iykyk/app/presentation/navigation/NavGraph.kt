@@ -110,24 +110,12 @@ fun IykykNavGraph(
                 },
                 onViewPeopleClick = {
                     navController.navigate(Destinations.PEOPLE_BREAKDOWN)
-                },
-                onShareClick = {
-                    navController.navigate(Destinations.SHARE)
                 }
             )
         }
 
         composable(Destinations.PEOPLE_BREAKDOWN) {
             PeopleBreakdownScreen(
-                viewModel = viewModel,
-                onBackClick = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        composable(Destinations.SHARE) {
-            ShareScreen(
                 viewModel = viewModel,
                 onBackClick = {
                     navController.popBackStack()

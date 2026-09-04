@@ -72,7 +72,7 @@ fun CollageResultScreen(
     onBackClick: () -> Unit,
     onHomeClick: () -> Unit,
     onViewPeopleClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val currentCollage by viewModel.currentCollage.collectAsState()
@@ -129,7 +129,9 @@ fun CollageResultScreen(
                         icon = Icons.Outlined.Share,
                         label = "Share",
                         accentColor = PrimaryPink,
-                        onClick = onShareClick
+                        onClick = {
+                            viewModel.shareCurrentCollage(context)
+                        }
                     )
 
                     // View People Action
