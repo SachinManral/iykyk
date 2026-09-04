@@ -327,33 +327,13 @@ object CollageComposer {
         canvas.restore()
     }
 
-    private fun drawFloralScrapbookDecorations(
-        canvas: Canvas,
-        slots: List<CollageLayouts.LayoutSlot>,
-        customFlowers: List<Bitmap> = emptyList(),
-        customStickers: List<Bitmap> = emptyList(),
-        rng: java.util.Random
-    ) {
-        // 1. Botanical Branches in corners & margins
-        drawBabysBreathSprig(canvas, 130f, 140f, 240f, 220f)
-        drawBotanicalLeafBranch(canvas, 1020f, 90f, 880f, 260f, 5, Color.parseColor("#4A6046"))
-        drawBotanicalLeafBranch(canvas, 40f, 1000f, 110f, 1220f, 4, Color.parseColor("#5A6B53"))
-        drawBabysBreathSprig(canvas, 840f, 1560f, 960f, 1680f)
-        drawBabysBreathSprig(canvas, 190f, 1640f, 270f, 1760f)
-
-        // 2. Vintage 35mm film strip snippet at bottom right corner
-        drawFilmStripSnippet(canvas, 910f, 1680f, 320f, 75f, 40f)
-
-        // 3. Vintage ticket/stamp on bottom-left ("GOOD PEOPLE GOOD TIMES ♡")
-        drawVintageTicketStamp(canvas, 125f, 1650f, 160f, 210f, -8f)
-
     private data class ScrapbookAnchor(
         val cx: Float,
         val cy: Float,
         val size: Float,
         val rotationDeg: Float,
         val isStickerAnchor: Boolean = false,
-        val proceduralType: Int = 0
+        val proceduralType: Int = 0 // 0 = daisy, 1 = peach blossom, 2 = butterfly, 3 = postage stamp
     )
 
     private fun drawFloralScrapbookDecorations(
@@ -363,43 +343,54 @@ object CollageComposer {
         customStickers: List<Bitmap> = emptyList(),
         rng: java.util.Random
     ) {
-        // Botanical branches and baby's breath sprigs across corners and margins
-        drawBabysBreathSprig(canvas, 130f, 140f, 240f, 220f)
-        drawBotanicalLeafBranch(canvas, 1020f, 90f, 880f, 260f, 5, Color.parseColor("#4A6046"))
-        drawBotanicalLeafBranch(canvas, 40f, 1000f, 110f, 1220f, 4, Color.parseColor("#5A6B53"))
-        drawBotanicalLeafBranch(canvas, 1040f, 1350f, 940f, 1530f, 4, Color.parseColor("#4A6046"))
+        // Large botanical leaf branches extending into canvas corners and margins
+        drawBotanicalLeafBranch(canvas, 0f, 0f, 260f, 220f, 6, Color.parseColor("#4A6046"), 1.35f)
+        drawBotanicalLeafBranch(canvas, 1080f, 0f, 820f, 220f, 6, Color.parseColor("#4A6046"), 1.35f)
+        drawBotanicalLeafBranch(canvas, 0f, 960f, 130f, 1180f, 5, Color.parseColor("#5A6B53"), 1.25f)
+        drawBotanicalLeafBranch(canvas, 1080f, 960f, 950f, 1180f, 5, Color.parseColor("#4A6046"), 1.25f)
+        drawBotanicalLeafBranch(canvas, 0f, 1920f, 240f, 1680f, 6, Color.parseColor("#5A6B53"), 1.35f)
+        drawBotanicalLeafBranch(canvas, 1080f, 1920f, 840f, 1680f, 6, Color.parseColor("#4A6046"), 1.35f)
+
+        // Baby's breath sprigs across upper, middle and lower margins
+        drawBabysBreathSprig(canvas, 540f, 60f, 540f, 180f)
+        drawBabysBreathSprig(canvas, 130f, 440f, 240f, 520f)
+        drawBabysBreathSprig(canvas, 950f, 440f, 840f, 520f)
         drawBabysBreathSprig(canvas, 840f, 1560f, 960f, 1680f)
         drawBabysBreathSprig(canvas, 190f, 1640f, 270f, 1760f)
 
         // Vintage 35mm film strip snippet at bottom right
-        drawFilmStripSnippet(canvas, 910f, 1680f, 320f, 75f, 40f)
+        drawFilmStripSnippet(canvas, 910f, 1680f, 340f, 80f, 38f)
 
         // Vintage ticket stamp at bottom left
-        drawVintageTicketStamp(canvas, 125f, 1650f, 160f, 210f, -8f)
+        drawVintageTicketStamp(canvas, 125f, 1650f, 170f, 220f, -8f)
 
         // Torn sage green washi brand label at bottom center
         drawTornWashiBrandLabel(canvas, 540f, 1790f, 350f, 96f)
 
         val anchors = listOf(
-            ScrapbookAnchor(120f, 130f, 185f, -14f, false, 0),
-            ScrapbookAnchor(540f, 115f, 155f, 6f, true, 2),
-            ScrapbookAnchor(950f, 125f, 185f, 16f, false, 0),
-            ScrapbookAnchor(100f, 460f, 150f, -10f, false, 1),
-            ScrapbookAnchor(980f, 460f, 160f, 12f, true, 2),
-            ScrapbookAnchor(540f, 490f, 140f, -8f, false, 1),
-            ScrapbookAnchor(95f, 720f, 205f, 8f, false, 0),
-            ScrapbookAnchor(125f, 900f, 155f, -15f, false, 1),
-            ScrapbookAnchor(985f, 740f, 195f, -12f, true, 2),
-            ScrapbookAnchor(950f, 930f, 165f, 14f, false, 0),
-            ScrapbookAnchor(240f, 1180f, 165f, -8f, false, 1),
-            ScrapbookAnchor(840f, 1190f, 165f, 10f, true, 2),
-            ScrapbookAnchor(105f, 1490f, 145f, 12f, false, 1),
-            ScrapbookAnchor(240f, 1730f, 185f, -14f, false, 0),
-            ScrapbookAnchor(980f, 1490f, 145f, -10f, false, 1),
-            ScrapbookAnchor(830f, 1710f, 195f, 16f, false, 0),
-            ScrapbookAnchor(950f, 1750f, 185f, -6f, false, 1),
-            ScrapbookAnchor(320f, 1830f, 125f, -8f, false, 1),
-            ScrapbookAnchor(760f, 1830f, 125f, 10f, false, 1)
+            ScrapbookAnchor(90f, 90f, 310f, -16f, false, 0),
+            ScrapbookAnchor(540f, 95f, 270f, 6f, true, 3),
+            ScrapbookAnchor(990f, 95f, 310f, 18f, true, 2),
+            ScrapbookAnchor(115f, 230f, 240f, -12f, false, 1),
+            ScrapbookAnchor(965f, 240f, 240f, 14f, false, 0),
+            ScrapbookAnchor(105f, 650f, 320f, 8f, false, 0),
+            ScrapbookAnchor(985f, 660f, 300f, -14f, true, 2),
+            ScrapbookAnchor(540f, 470f, 250f, -6f, false, 1),
+            ScrapbookAnchor(250f, 690f, 270f, 10f, false, 0),
+            ScrapbookAnchor(830f, 700f, 280f, -12f, true, 2),
+            ScrapbookAnchor(70f, 940f, 280f, 6f, false, 0),
+            ScrapbookAnchor(1010f, 940f, 290f, -10f, true, 3),
+            ScrapbookAnchor(220f, 1200f, 290f, -12f, false, 1),
+            ScrapbookAnchor(860f, 1210f, 290f, 14f, true, 2),
+            ScrapbookAnchor(85f, 1280f, 270f, 10f, true, 3),
+            ScrapbookAnchor(995f, 1290f, 270f, -14f, false, 1),
+            ScrapbookAnchor(540f, 1390f, 250f, 4f, true, 3),
+            ScrapbookAnchor(130f, 1650f, 330f, -10f, false, 0),
+            ScrapbookAnchor(910f, 1690f, 360f, 15f, false, 0),
+            ScrapbookAnchor(80f, 1850f, 280f, 14f, true, 2),
+            ScrapbookAnchor(1000f, 1850f, 280f, -12f, false, 1),
+            ScrapbookAnchor(310f, 1810f, 230f, -8f, false, 1),
+            ScrapbookAnchor(770f, 1810f, 230f, 10f, true, 3)
         )
 
         val shuffledFlowers = if (customFlowers.isNotEmpty()) customFlowers.shuffled(rng) else emptyList()
@@ -425,6 +416,7 @@ object CollageComposer {
                     0 -> drawRealisticDaisy(canvas, anchor.cx, anchor.cy, sizeJitter)
                     1 -> drawPressedPeachBlossom(canvas, anchor.cx, anchor.cy, sizeJitter, if (flowerIdx % 2 == 0) Color.parseColor("#E09585") else Color.parseColor("#E28B9B"))
                     2 -> drawButterflySticker(canvas, anchor.cx, anchor.cy, sizeJitter)
+                    3 -> drawVintagePostageStampSticker(canvas, anchor.cx, anchor.cy, sizeJitter, rotJitter)
                 }
                 flowerIdx++
             }
@@ -815,22 +807,99 @@ object CollageComposer {
         canvas.restore()
     }
 
-    private fun drawBotanicalLeafBranch(canvas: Canvas, startX: Float, startY: Float, endX: Float, endY: Float, leafCount: Int, leafColor: Int) {
+    private fun drawVintagePostageStampSticker(canvas: Canvas, cx: Float, cy: Float, size: Float, rotationDeg: Float) {
+        canvas.save()
+        canvas.rotate(rotationDeg, cx, cy)
+
+        val halfW = size / 2f
+        val halfH = (size * 1.22f) / 2f
+        val rect = RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+
+        // Drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#38150A05")
+            setShadowLayer(14f, 2f, 7f, Color.parseColor("#38150A05"))
+        }
+        canvas.drawRoundRect(rect, 8f, 8f, shadowPaint)
+
+        // Stamp base paper (perforated appearance)
+        val stampPaper = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FAF5EA")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(rect, 6f, 6f, stampPaper)
+
+        // Stamp inner artwork frame
+        val innerRect = RectF(rect.left + 14f, rect.top + 14f, rect.right - 14f, rect.bottom - 14f)
+        val artBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E4D5C1")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(innerRect, 4f, 4f, artBg)
+
+        // Inner border
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8C7259")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        canvas.drawRoundRect(innerRect, 4f, 4f, borderPaint)
+
+        // Bird / botanical symbol in center
+        val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#5C4533")
+            textSize = 28f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("POSTAGE", cx, cy - 18f, symbolPaint)
+        canvas.drawText("25¢", cx, cy + 20f, symbolPaint)
+
+        // Postmark cancellation wavy lines across stamp
+        val cancelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#3B2E24")
+            alpha = 180
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+        }
+        for (i in -1..1) {
+            val yOffset = cy + (i * 22f)
+            val wave = Path().apply {
+                moveTo(rect.left - 15f, yOffset)
+                quadTo(cx - 20f, yOffset - 10f, cx, yOffset)
+                quadTo(cx + 20f, yOffset + 10f, rect.right + 15f, yOffset)
+            }
+            canvas.drawPath(wave, cancelPaint)
+        }
+
+        canvas.restore()
+    }
+
+    private fun drawBotanicalLeafBranch(
+        canvas: Canvas,
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        leafCount: Int,
+        leafColor: Int,
+        leafScale: Float = 1.0f
+    ) {
         val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#4A3F33")
             style = Paint.Style.STROKE
-            strokeWidth = 2.5f
+            strokeWidth = 3f * leafScale
             strokeCap = Paint.Cap.ROUND
         }
         val leafPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = leafColor
             style = Paint.Style.FILL
-            alpha = 220
+            alpha = 230
         }
 
         // Curving main stem
-        val midX = (startX + endX) / 2f + 20f
-        val midY = (startY + endY) / 2f - 15f
+        val midX = (startX + endX) / 2f + 25f * leafScale
+        val midY = (startY + endY) / 2f - 20f * leafScale
         val stemPath = Path().apply {
             moveTo(startX, startY)
             quadTo(midX, midY, endX, endY)
@@ -838,6 +907,8 @@ object CollageComposer {
         canvas.drawPath(stemPath, stemPaint)
 
         // Paired eucalyptus/olive leaves along stem
+        val lw = 36f * leafScale
+        val lh = 15f * leafScale
         for (i in 1..leafCount) {
             val t = i.toFloat() / (leafCount + 1)
             val lx = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * midX + t * t * endX
@@ -846,14 +917,14 @@ object CollageComposer {
             // Left leaf
             canvas.save()
             canvas.rotate(-35f, lx, ly)
-            val leftLeaf = RectF(lx - 26f, ly - 10f, lx + 26f, ly + 10f)
+            val leftLeaf = RectF(lx - lw, ly - lh, lx + lw, ly + lh)
             canvas.drawOval(leftLeaf, leafPaint)
             canvas.restore()
 
             // Right leaf
             canvas.save()
             canvas.rotate(35f, lx, ly)
-            val rightLeaf = RectF(lx - 24f, ly - 9f, lx + 24f, ly + 9f)
+            val rightLeaf = RectF(lx - lw * 0.9f, ly - lh * 0.9f, lx + lw * 0.9f, ly + lh * 0.9f)
             canvas.drawOval(rightLeaf, leafPaint)
             canvas.restore()
         }

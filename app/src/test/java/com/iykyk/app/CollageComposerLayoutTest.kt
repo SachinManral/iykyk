@@ -40,10 +40,12 @@ class CollageComposerLayoutTest {
     @Test
     fun testTapeStyles() {
         val styles = com.iykyk.app.graphics.TapeGenerator.TapeStyle.entries
-        assertEquals(4, styles.size)
+        assertEquals(6, styles.size)
         assertEquals("KRAFT", com.iykyk.app.graphics.TapeGenerator.TapeStyle.KRAFT.name)
         assertEquals("BEIGE", com.iykyk.app.graphics.TapeGenerator.TapeStyle.BEIGE.name)
         assertEquals("PINK", com.iykyk.app.graphics.TapeGenerator.TapeStyle.PINK.name)
+        assertEquals("SAGE_GREEN", com.iykyk.app.graphics.TapeGenerator.TapeStyle.SAGE_GREEN.name)
+        assertEquals("GINGHAM_PINK", com.iykyk.app.graphics.TapeGenerator.TapeStyle.GINGHAM_PINK.name)
         assertEquals("TRANSPARENT", com.iykyk.app.graphics.TapeGenerator.TapeStyle.TRANSPARENT.name)
     }
 

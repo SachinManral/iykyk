@@ -87,6 +87,7 @@ dependencies {
 
     // Image loading
     implementation(libs.coil.compose)
+    implementation(libs.androidsvg)
 
     // Testing
     testImplementation(libs.junit)

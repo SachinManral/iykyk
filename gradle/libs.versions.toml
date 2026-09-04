@@ -48,6 +48,7 @@ tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-su
 
 # Image Loading
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+androidsvg = { group = "com.caverock", name = "androidsvg-aar", version = "1.4" }
 
 # Unit Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
