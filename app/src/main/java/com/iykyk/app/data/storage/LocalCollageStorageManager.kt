@@ -93,6 +93,7 @@ object LocalCollageStorageManager {
             metaJson.put("videoTitle", collage.videoTitle)
             metaJson.put("videoDurationMs", collage.videoDurationMs)
             metaJson.put("totalAppearances", collage.totalAppearances)
+            metaJson.put("selectedTheme", collage.selectedTheme.id)
             metaJson.put("creationTimestampMs", collage.creationTimestampMs)
             metaJson.put("people", peopleJsonArray)
 
@@ -128,6 +129,8 @@ object LocalCollageStorageManager {
                     val videoTitle = metaJson.optString("videoTitle", "Untitled Collage")
                     val videoDurationMs = metaJson.optLong("videoDurationMs", 0L)
                     val totalAppearances = metaJson.optInt("totalAppearances", 0)
+                    val themeId = metaJson.optString("selectedTheme", "floral_scrapbook")
+                    val selectedTheme = com.iykyk.app.graphics.CollageTheme.fromId(themeId)
                     val creationTimestampMs = metaJson.optLong("creationTimestampMs", folder.lastModified())
 
                     val peopleJsonArray = metaJson.optJSONArray("people") ?: JSONArray()
@@ -185,6 +188,7 @@ object LocalCollageStorageManager {
                             people = people,
                             totalAppearances = totalAppearances,
                             collageBitmap = collageBitmap,
+                            selectedTheme = selectedTheme,
                             creationTimestampMs = creationTimestampMs
                         )
                     )

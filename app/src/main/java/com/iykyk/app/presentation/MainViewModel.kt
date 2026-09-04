@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
+import com.iykyk.app.graphics.CollageTheme
+
 data class VideoItem(
     val uri: Uri,
     val title: String,
@@ -40,6 +42,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedVideo = MutableStateFlow<VideoItem?>(null)
     val selectedVideo: StateFlow<VideoItem?> = _selectedVideo.asStateFlow()
+
+    private val _selectedCollageTheme = MutableStateFlow(CollageTheme.FLORAL_SCRAPBOOK)
+    val selectedCollageTheme: StateFlow<CollageTheme> = _selectedCollageTheme.asStateFlow()
 
     private val _pipelineProgress = MutableStateFlow(PipelineProgress())
     val pipelineProgress: StateFlow<PipelineProgress> = _pipelineProgress.asStateFlow()
@@ -140,7 +145,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openCollage(collage: CollageResult) {
+        _selectedCollageTheme.value = collage.selectedTheme
         _currentCollage.value = collage
+    }
+
+    fun remixCollageStyle() {
+        val current = _currentCollage.value ?: return
+        val remainingThemes = CollageTheme.entries.filter { it != current.selectedTheme }
+        val newTheme = if (remainingThemes.isNotEmpty()) remainingThemes.random() else CollageTheme.entries.random()
+        setCollageTheme(newTheme)
+    }
+
+    fun setCollageTheme(theme: CollageTheme) {
+        _selectedCollageTheme.value = theme
+        val current = _currentCollage.value ?: return
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val logoBitmap = try {
+                getApplication<Application>().assets.open("logo.png").use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            val updatedBitmap = CollageComposer.createCollageBitmap(
+                people = current.people,
+                totalAppearances = current.totalAppearances,
+                customTitle = current.videoTitle,
+                theme = theme,
+                logoBitmap = logoBitmap,
+                assetManager = getApplication<Application>().assets,
+                seed = System.currentTimeMillis() + kotlin.random.Random.nextLong(10000)
+            )
+
+            val updatedCollage = current.copy(
+                selectedTheme = theme,
+                collageBitmap = updatedBitmap
+            )
+
+            _currentCollage.value = updatedCollage
+            _recentCollages.value = _recentCollages.value.map {
+                if (it.creationTimestampMs == updatedCollage.creationTimestampMs) updatedCollage else it
+            }
+
+            com.iykyk.app.data.storage.LocalCollageStorageManager.saveCollage(
+                getApplication(),
+                updatedCollage
+            )
+        }
     }
 
     fun deleteSavedCollage(collage: CollageResult) {
@@ -252,7 +305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     statusMessage = "Composing your collage..."
                 )
 
-                // Render dynamic collage bitmap with brand logo
+                // Render dynamic collage bitmap with brand logo & active theme
                 val logoBitmap = try {
                     getApplication<Application>().assets.open("logo.png").use { input ->
                         android.graphics.BitmapFactory.decodeStream(input)
@@ -261,11 +314,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     null
                 }
 
+                val activeTheme = CollageTheme.entries.random()
+                _selectedCollageTheme.value = activeTheme
                 val collageBitmap = CollageComposer.createCollageBitmap(
                     people = finalAnalysis.people,
                     totalAppearances = finalAnalysis.totalAppearances,
                     customTitle = finalAnalysis.videoTitle,
-                    logoBitmap = logoBitmap
+                    theme = activeTheme,
+                    logoBitmap = logoBitmap,
+                    assetManager = getApplication<Application>().assets
                 )
 
                 val composeSecs = ((System.currentTimeMillis() - composeStartTime) / 1000).toInt().coerceAtLeast(1)
@@ -278,7 +335,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     videoDurationMs = finalAnalysis.durationMs,
                     people = finalAnalysis.people,
                     totalAppearances = finalAnalysis.totalAppearances,
-                    collageBitmap = collageBitmap
+                    collageBitmap = collageBitmap,
+                    selectedTheme = activeTheme
                 )
 
                 _currentCollage.value = result
