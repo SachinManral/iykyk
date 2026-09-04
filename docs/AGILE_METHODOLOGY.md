@@ -78,15 +78,6 @@ This project follows an adapted **Lean-Agile (Scrumban)** framework designed for
 
 ---
 
-### 3. Definition of Done (DoD) Checklist
-For every feature and module to be marked complete, it must meet:
-- [x] **Correctness**: Zero runtime crashes; logic verified against test datasets.
-- [x] **Thread Safety**: All heavy computation executed strictly off the main thread (`Dispatchers.Default` / `Dispatchers.IO`).
-- [x] **Memory Discipline**: All temporary Bitmaps and TFLite buffers recycled promptly without memory leaks.
-- [x] **Code Quality**: Clean, idiomatic Kotlin; human-sounding comments; adhering to Clean Architecture & Single Responsibility Principle.
-- [x] **UI Polish**: Adheres directly to the reference design aesthetics, smooth typography, and proper touch targets.
-
----
 
 ### 4. Risk Register & Mitigation Strategy
 
