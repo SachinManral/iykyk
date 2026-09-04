@@ -51,7 +51,7 @@ class VideoProcessor(private val context: Context) {
         val metadata = frameExtractor.extractMetadata(videoUri)
         val durationMs = metadata.durationMs.coerceAtLeast(1000L)
 
-        // 5 FPS sampling rate
+        // 5 FPS sampling rate (200ms step)
         val sampleTimestamps = frameExtractor.generateSamplingTimestamps(
             durationMs = durationMs,
             baseIntervalMs = 200L
@@ -86,21 +86,27 @@ class VideoProcessor(private val context: Context) {
                     targetHeight = 960
                 ) ?: continue
 
+                // 1. Run ML Kit detection on each frame -> get list of faces
                 val detectedFaces = faceDetector.detectFaces(frameBitmap, timestampMs)
 
                 for (face in detectedFaces) {
-                    // Face-level quality gate
-                    if (face.sharpnessScore < 10f) {
+                    // Face-level quality gate (reject extreme blur)
+                    if (face.sharpnessScore > 0f && face.sharpnessScore < 8f) {
                         continue
                     }
 
-                    val alignedFace = FaceAligner.alignFace(
+                    // 2. 5-point similarity transformation alignment (ArcFace canonical coordinates)
+                    val alignedFace = FaceAligner.alignFace5Points(
                         sourceBitmap = frameBitmap,
                         boundingBox = face.boundingBox,
                         leftEye = face.leftEye,
-                        rightEye = face.rightEye
+                        rightEye = face.rightEye,
+                        noseBase = face.noseBase,
+                        leftMouth = face.leftMouth,
+                        rightMouth = face.rightMouth
                     ) ?: continue
 
+                    // 3. MobileFaceNet-ArcFace ONNX inference (512-D L2-normalized embedding)
                     val embedding = try {
                         faceEmbedder.extractEmbedding(alignedFace)
                     } finally {
@@ -111,15 +117,23 @@ class VideoProcessor(private val context: Context) {
                         continue
                     }
 
-                    val completeFace = face.copy(embedding = embedding)
+                    // 4. Compute multi-factor quality score
+                    val qualityScore = ShotRanker.computeSingleQualityScore(face)
+                    val completeFace = face.copy(
+                        embedding = embedding,
+                        qualityScore = qualityScore
+                    )
                     allDetections.add(completeFace)
 
                     if (discoveredAvatars.size < 6) {
-                        val avatar = FaceAligner.alignFace(
+                        val avatar = FaceAligner.alignFace5Points(
                             sourceBitmap = frameBitmap,
                             boundingBox = completeFace.boundingBox,
                             leftEye = completeFace.leftEye,
-                            rightEye = completeFace.rightEye
+                            rightEye = completeFace.rightEye,
+                            noseBase = completeFace.noseBase,
+                            leftMouth = completeFace.leftMouth,
+                            rightMouth = completeFace.rightMouth
                         )
                         if (avatar != null) {
                             val avatarCopy = Bitmap.createScaledBitmap(avatar, 96, 96, true)
@@ -144,28 +158,13 @@ class VideoProcessor(private val context: Context) {
                 }
             }
 
-            // Cluster tracklets into distinct person identities
-            emit(
-                PipelineProgress(
-                    stage = PipelineStage.GROUPING_IDENTITIES,
-                    progressPercent = 55,
-                    statusMessage = "Separating people...",
-                    detectedFacesCount = allDetections.size,
-                    discoveredAvatars = discoveredAvatars.toList()
-                ) to null
-            )
-
-            val clusterer = IdentityClusterer(distanceThreshold = 0.22f)
-            val faceClusters = clusterer.clusterFaces(allDetections)
-
-            // Segment continuous appearances per person
+            // 5. Build continuous appearance segments via frame-to-frame box tracking & keyframe selection
             emit(
                 PipelineProgress(
                     stage = PipelineStage.COUNTING_APPEARANCES,
-                    progressPercent = 70,
-                    statusMessage = "Counting appearances...",
+                    progressPercent = 55,
+                    statusMessage = "Tracking continuous appearances...",
                     detectedFacesCount = allDetections.size,
-                    discoveredPeopleCount = faceClusters.size,
                     discoveredAvatars = discoveredAvatars.toList()
                 ) to null
             )
@@ -174,28 +173,43 @@ class VideoProcessor(private val context: Context) {
                 maxContinuityGapMs = 600L,
                 minDetectionsPerSegment = 1
             )
-            val personIdentities = mutableListOf<PersonIdentity>()
-            var totalAppearancesCount = 0
+            val appearanceTracks = segmenter.buildAppearanceTracks(allDetections)
 
-            // Select best representative portrait and time ranges
+            // 6. Global agglomerative clustering on pooled segment keyframe embeddings
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.GROUPING_IDENTITIES,
+                    progressPercent = 70,
+                    statusMessage = "Grouping unique individuals with ArcFace...",
+                    detectedFacesCount = allDetections.size,
+                    discoveredPeopleCount = appearanceTracks.size,
+                    discoveredAvatars = discoveredAvatars.toList()
+                ) to null
+            )
+
+            val clusterer = IdentityClusterer(distanceThreshold = 0.44f)
+            val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
+
+            // 7. Select best representative moments and compose person identities
             emit(
                 PipelineProgress(
                     stage = PipelineStage.CHOOSING_BEST_MOMENTS,
                     progressPercent = 85,
                     statusMessage = "Selecting best representative moments...",
                     detectedFacesCount = allDetections.size,
-                    discoveredPeopleCount = faceClusters.size,
+                    discoveredPeopleCount = personClusters.size,
                     discoveredAvatars = discoveredAvatars.toList()
                 ) to null
             )
 
-            for ((clusterIdx, clusterDetections) in faceClusters.withIndex()) {
-                ShotRanker.rankCandidateShots(clusterDetections)
+            val personIdentities = mutableListOf<PersonIdentity>()
+            var totalAppearancesCount = 0
 
-                val appearances = segmenter.segmentAppearances(clusterDetections)
+            for ((clusterIdx, cluster) in personClusters.withIndex()) {
+                val appearances = cluster.segments
                 totalAppearancesCount += appearances.size
 
-                val bestDetection = clusterDetections.maxByOrNull { it.qualityScore } ?: continue
+                val bestDetection = cluster.representativeDetection
 
                 val fullFrame = frameExtractor.getFrameAt(retriever, bestDetection.frameTimestampMs)
                 val portraitCrop = fullFrame?.let {

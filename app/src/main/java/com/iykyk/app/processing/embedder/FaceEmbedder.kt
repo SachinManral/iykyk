@@ -1,93 +1,113 @@
 package com.iykyk.app.processing.embedder
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
-import org.tensorflow.lite.Interpreter
-import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.channels.FileChannel
+import java.nio.FloatBuffer
 import kotlin.math.sqrt
 
 /**
- * Generates L2-normalized feature embeddings from aligned face bitmaps
- * using on-device TensorFlow Lite MobileFaceNet model.
+ * Generates 512-D L2-normalized feature embeddings from aligned face bitmaps (112x112)
+ * using on-device MobileFaceNet-ArcFace ONNX model (w600k_mbf.onnx) via ONNX Runtime.
  */
-class FaceEmbedder(context: Context, modelFileName: String = "mobile_face_net.tflite") : AutoCloseable {
+class FaceEmbedder(
+    context: Context,
+    modelFileName: String = "w600k_mbf.onnx"
+) : AutoCloseable {
 
-    private val interpreter: Interpreter
-    private val inputImageSize: Int
-    private val embeddingDim: Int
+    private val ortEnvironment: OrtEnvironment = OrtEnvironment.getEnvironment()
+    private val ortSession: OrtSession
+    private val inputName: String
+    private val embeddingDim: Int = 512
+    private val inputSize: Int = 112
 
     init {
-        val modelBuffer = loadModelFile(context, modelFileName)
-        val options = Interpreter.Options().apply {
-            setNumThreads(4)
+        val sessionOptions = OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(4)
         }
-        interpreter = Interpreter(modelBuffer, options)
 
-        val inputShape = interpreter.getInputTensor(0).shape() // [1, 112, 112, 3]
-        inputImageSize = inputShape[1]
+        val modelBytes = context.assets.open(modelFileName).use { it.readBytes() }
+        ortSession = ortEnvironment.createSession(modelBytes, sessionOptions)
 
-        val outputShape = interpreter.getOutputTensor(0).shape() // e.g. [1, 192] or [1, 128]
-        embeddingDim = outputShape[1]
+        inputName = ortSession.inputNames.iterator().next()
     }
 
     fun getEmbeddingDimension(): Int = embeddingDim
 
     /**
-     * Extracts an L2-normalized feature embedding vector from an aligned face bitmap.
+     * Extracts a 512-D unit-normalized feature embedding from an aligned 112x112 face bitmap.
      */
     fun extractEmbedding(faceBitmap: Bitmap): FloatArray {
-        val scaled = if (faceBitmap.width != inputImageSize || faceBitmap.height != inputImageSize) {
-            Bitmap.createScaledBitmap(faceBitmap, inputImageSize, inputImageSize, true)
+        val scaled = if (faceBitmap.width != inputSize || faceBitmap.height != inputSize) {
+            Bitmap.createScaledBitmap(faceBitmap, inputSize, inputSize, true)
         } else {
             faceBitmap
         }
 
-        val inputBuffer = convertBitmapToByteBuffer(scaled)
-        val outputBuffer = Array(1) { FloatArray(embeddingDim) }
-
-        interpreter.run(inputBuffer, outputBuffer)
+        val floatBuffer = convertBitmapToNchwBuffer(scaled)
 
         if (scaled != faceBitmap) {
             scaled.recycle()
         }
 
-        return l2Normalize(outputBuffer[0])
+        val inputTensor = OnnxTensor.createTensor(
+            ortEnvironment,
+            floatBuffer,
+            longArrayOf(1, 3, inputSize.toLong(), inputSize.toLong())
+        )
+
+        val results = ortSession.run(mapOf(inputName to inputTensor))
+        return try {
+            val outputTensor = results.get(0)
+            @Suppress("UNCHECKED_CAST")
+            val outputArray = outputTensor.value as Array<FloatArray>
+            val rawEmbedding = outputArray[0]
+            l2Normalize(rawEmbedding)
+        } finally {
+            inputTensor.close()
+            results.close()
+        }
     }
 
-    private fun convertBitmapToByteBuffer(bitmap: Bitmap): ByteBuffer {
-        val byteBuffer = ByteBuffer.allocateDirect(1 * inputImageSize * inputImageSize * 3 * 4)
-        byteBuffer.order(ByteOrder.nativeOrder())
-        byteBuffer.rewind()
+    /**
+     * Prepares NCHW FloatBuffer normalized as (pixel - 127.5) / 128.0.
+     * InsightFace ArcFace models standard order: BGR, NCHW layout.
+     */
+    private fun convertBitmapToNchwBuffer(bitmap: Bitmap): FloatBuffer {
+        val totalPixels = inputSize * inputSize
+        val intValues = IntArray(totalPixels)
+        bitmap.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
 
-        val intValues = IntArray(inputImageSize * inputImageSize)
-        bitmap.getPixels(intValues, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val floatBuffer = FloatBuffer.allocate(1 * 3 * totalPixels)
 
-        var pixelIndex = 0
-        for (i in 0 until inputImageSize) {
-            for (j in 0 until inputImageSize) {
-                val pixel = intValues[pixelIndex++]
-                // Normalize pixels from [0, 255] to [-1, 1] standard: (val - 127.5) / 128.0
-                val r = (((pixel shr 16) and 0xFF) - 127.5f) / 128.0f
-                val g = (((pixel shr 8) and 0xFF) - 127.5f) / 128.0f
-                val b = ((pixel and 0xFF) - 127.5f) / 128.0f
-
-                byteBuffer.putFloat(r)
-                byteBuffer.putFloat(g)
-                byteBuffer.putFloat(b)
+        // Channels: 0 = Blue, 1 = Green, 2 = Red (BGR NCHW)
+        for (c in 0 until 3) {
+            var idx = 0
+            for (h in 0 until inputSize) {
+                for (w in 0 until inputSize) {
+                    val pixel = intValues[idx++]
+                    val channelValue = when (c) {
+                        0 -> (pixel and 0xFF)          // Blue
+                        1 -> ((pixel shr 8) and 0xFF)  // Green
+                        2 -> ((pixel shr 16) and 0xFF) // Red
+                        else -> 0
+                    }
+                    floatBuffer.put((channelValue - 127.5f) / 128.0f)
+                }
             }
         }
-        return byteBuffer
+        floatBuffer.rewind()
+        return floatBuffer
     }
 
     private fun l2Normalize(vector: FloatArray): FloatArray {
-        var sumSquares = 0f
+        var sumSquares = 0.0
         for (v in vector) {
-            sumSquares += v * v
+            sumSquares += (v * v).toDouble()
         }
-        val norm = sqrt(sumSquares.toDouble()).toFloat().coerceAtLeast(1e-10f)
+        val norm = sqrt(sumSquares).toFloat().coerceAtLeast(1e-10f)
         val result = FloatArray(vector.size)
         for (i in vector.indices) {
             result[i] = vector[i] / norm
@@ -101,7 +121,7 @@ class FaceEmbedder(context: Context, modelFileName: String = "mobile_face_net.tf
          * Value ranges from -1.0 to +1.0 (higher = closer match).
          */
         fun cosineSimilarity(e1: FloatArray, e2: FloatArray): Float {
-            if (e1.size != e2.size) return 0f
+            if (e1.size != e2.size || e1.isEmpty()) return 0f
             var dot = 0f
             for (i in e1.indices) {
                 dot += e1[i] * e2[i]
@@ -110,7 +130,7 @@ class FaceEmbedder(context: Context, modelFileName: String = "mobile_face_net.tf
         }
 
         /**
-         * Calculates cosine distance: 1 - cosine similarity.
+         * Calculates cosine distance: 1.0 - cosine similarity.
          * Value ranges from 0.0 to 2.0 (lower = closer match).
          */
         fun cosineDistance(e1: FloatArray, e2: FloatArray): Float {
@@ -118,16 +138,8 @@ class FaceEmbedder(context: Context, modelFileName: String = "mobile_face_net.tf
         }
     }
 
-    private fun loadModelFile(context: Context, modelFileName: String): ByteBuffer {
-        val fileDescriptor = context.assets.openFd(modelFileName)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
-    }
-
     override fun close() {
-        interpreter.close()
+        ortSession.close()
+        ortEnvironment.close()
     }
 }

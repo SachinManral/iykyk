@@ -1,54 +1,67 @@
 package com.iykyk.app.processing.clustering
 
+import com.iykyk.app.data.model.AppearanceSegment
 import com.iykyk.app.data.model.DetectedFaceInfo
 import com.iykyk.app.processing.embedder.FaceEmbedder
+import kotlin.math.abs
 import kotlin.math.sqrt
 
+/**
+ * Global Agglomerative (Hierarchical) Clustering with Average Linkage
+ * and Co-Occurrence Conflict Constraints for ArcFace 512-D embeddings.
+ */
 class IdentityClusterer(
-    private val distanceThreshold: Float = 0.22f
+    private val distanceThreshold: Float = 0.44f
 ) {
 
-    data class FaceTracklet(
+    data class PersonCluster(
+        val clusterId: Int,
+        val segments: List<AppearanceSegment>,
+        val allDetections: List<DetectedFaceInfo>,
+        val representativeDetection: DetectedFaceInfo
+    )
+
+    data class TrackClusterNode(
         val id: Int,
-        val detections: MutableList<DetectedFaceInfo> = mutableListOf(),
+        val tracks: MutableList<AppearanceSegmenter.SegmentTrack> = mutableListOf(),
         var centroidEmbedding: FloatArray = FloatArray(0)
     )
 
-    var lastTrackletCount: Int = 0
-        private set
-
-    fun clusterFaces(detections: List<DetectedFaceInfo>): List<List<DetectedFaceInfo>> {
-        val validDetections = detections.filter {
-            val embedding = it.embedding
-            embedding != null && embedding.isNotEmpty()
-        }
-        if (validDetections.isEmpty()) {
-            lastTrackletCount = 0
-            return emptyList()
+    /**
+     * Clusters appearance segment tracks into unique person identities.
+     */
+    fun clusterSegmentTracks(tracks: List<AppearanceSegmenter.SegmentTrack>): List<PersonCluster> {
+        val validTracks = tracks.filter { track ->
+            track.representativeKeyframes.any { it.embedding != null && it.embedding.isNotEmpty() }
         }
 
-        val tracklets = buildTracklets(validDetections)
-        lastTrackletCount = tracklets.size
-        if (tracklets.isEmpty()) {
-            return emptyList()
-        }
+        if (validTracks.isEmpty()) return emptyList()
 
-        val clusters = tracklets.map { mutableListOf(it) }.toMutableList()
+        val nodes = validTracks.mapIndexed { index, track ->
+            val embeddings = track.representativeKeyframes.mapNotNull { it.embedding }
+            val centroid = computeCentroid(embeddings)
+            TrackClusterNode(
+                id = index + 1,
+                tracks = mutableListOf(track),
+                centroidEmbedding = centroid
+            )
+        }.toMutableList()
 
-        while (clusters.size > 1) {
+        // Global Agglomerative Clustering
+        while (nodes.size > 1) {
             var bestDistance = Float.MAX_VALUE
             var bestI = -1
             var bestJ = -1
 
-            for (i in 0 until clusters.size) {
-                for (j in i + 1 until clusters.size) {
-                    if (hasCoOccurrenceConflict(clusters[i], clusters[j])) {
+            for (i in 0 until nodes.size) {
+                for (j in i + 1 until nodes.size) {
+                    if (hasCoOccurrenceConflict(nodes[i], nodes[j])) {
                         continue
                     }
 
-                    val distance = averageLinkageDistance(clusters[i], clusters[j])
-                    if (distance < bestDistance) {
-                        bestDistance = distance
+                    val dist = averageLinkageDistance(nodes[i], nodes[j])
+                    if (dist < bestDistance) {
+                        bestDistance = dist
                         bestI = i
                         bestJ = j
                     }
@@ -59,97 +72,72 @@ class IdentityClusterer(
                 break
             }
 
-            clusters[bestI].addAll(clusters[bestJ])
-            clusters.removeAt(bestJ)
+            // Merge bestJ into bestI
+            nodes[bestI].tracks.addAll(nodes[bestJ].tracks)
+            val allEmbeddings = nodes[bestI].tracks.flatMap { t ->
+                t.representativeKeyframes.mapNotNull { it.embedding }
+            }
+            nodes[bestI].centroidEmbedding = computeCentroid(allEmbeddings)
+            nodes.removeAt(bestJ)
         }
 
-        return clusters
-            .map { cluster -> cluster.flatMap { it.detections }.sortedBy { it.frameTimestampMs } }
-            .sortedByDescending { it.size }
-    }
+        // Convert merged nodes into PersonClusters
+        return nodes.mapIndexed { index, node ->
+            val allDetections = node.tracks.flatMap { it.detections }.sortedBy { it.frameTimestampMs }
+            val segments = node.tracks.mapNotNull { it.appearanceSegment }.sortedBy { it.startTimeMs }
+            val bestDetection = allDetections.maxByOrNull { it.qualityScore } ?: allDetections.first()
 
-    private fun buildTracklets(detections: List<DetectedFaceInfo>): List<FaceTracklet> {
-        val sorted = detections.sortedBy { it.frameTimestampMs }
-        val active = mutableMapOf<Int, FaceTracklet>()
-        val finished = mutableListOf<FaceTracklet>()
-        var nextId = 1
-
-        for (det in sorted) {
-            val trackingId = det.trackingId
-            if (trackingId == null || trackingId < 0) {
-                val single = FaceTracklet(id = nextId++)
-                single.detections.add(det)
-                single.centroidEmbedding = computeCentroid(single.detections.mapNotNull { it.embedding })
-                if (single.centroidEmbedding.isNotEmpty()) {
-                    finished.add(single)
-                }
-                continue
-            }
-
-            val current = active[trackingId]
-            if (current == null) {
-                val tracklet = FaceTracklet(id = nextId++)
-                tracklet.detections.add(det)
-                active[trackingId] = tracklet
-            } else {
-                val last = current.detections.last()
-                val gap = det.frameTimestampMs - last.frameTimestampMs
-
-                if (gap <= 600L) {
-                    current.detections.add(det)
-                } else {
-                    current.centroidEmbedding = computeCentroid(current.detections.mapNotNull { it.embedding })
-                    if (current.centroidEmbedding.isNotEmpty()) {
-                        finished.add(current)
-                    }
-                    val newTracklet = FaceTracklet(id = nextId++)
-                    newTracklet.detections.add(det)
-                    active[trackingId] = newTracklet
-                }
-            }
-        }
-
-        active.values.forEach { tracklet ->
-            tracklet.centroidEmbedding = computeCentroid(tracklet.detections.mapNotNull { it.embedding })
-            if (tracklet.centroidEmbedding.isNotEmpty()) {
-                finished.add(tracklet)
-            }
-        }
-
-        return finished
+            PersonCluster(
+                clusterId = index + 1,
+                segments = segments,
+                allDetections = allDetections,
+                representativeDetection = bestDetection
+            )
+        }.sortedByDescending { it.allDetections.size }
     }
 
     /**
-     * Average linkage distance between clusters of tracklets.
+     * Backward-compatible clustering method for raw detections list.
      */
+    fun clusterFaces(detections: List<DetectedFaceInfo>): List<List<DetectedFaceInfo>> {
+        val segmenter = AppearanceSegmenter()
+        val tracks = segmenter.buildAppearanceTracks(detections)
+        val clusters = clusterSegmentTracks(tracks)
+        return clusters.map { it.allDetections }
+    }
+
     private fun averageLinkageDistance(
-        c1: List<FaceTracklet>,
-        c2: List<FaceTracklet>
+        n1: TrackClusterNode,
+        n2: TrackClusterNode
     ): Float {
         var total = 0f
         var count = 0
-        for (a in c1) {
-            for (b in c2) {
-                total += FaceEmbedder.cosineDistance(a.centroidEmbedding, b.centroidEmbedding)
-                count++
+
+        for (t1 in n1.tracks) {
+            for (t2 in n2.tracks) {
+                val e1 = t1.representativeKeyframes.mapNotNull { it.embedding }
+                val e2 = t2.representativeKeyframes.mapNotNull { it.embedding }
+                for (v1 in e1) {
+                    for (v2 in e2) {
+                        total += FaceEmbedder.cosineDistance(v1, v2)
+                        count++
+                    }
+                }
             }
         }
+
         return if (count > 0) total / count else Float.MAX_VALUE
     }
 
-    /**
-     * Two identities cannot be the same if their actual observations coexist within the same sampled time window.
-     */
     private fun hasCoOccurrenceConflict(
-        c1: List<FaceTracklet>,
-        c2: List<FaceTracklet>
+        n1: TrackClusterNode,
+        n2: TrackClusterNode
     ): Boolean {
-        for (a in c1) {
-            for (b in c2) {
-                for (da in a.detections) {
-                    for (db in b.detections) {
-                        val timeDifference = kotlin.math.abs(da.frameTimestampMs - db.frameTimestampMs)
-                        if (timeDifference <= 250L) {
+        for (t1 in n1.tracks) {
+            for (t2 in n2.tracks) {
+                for (d1 in t1.detections) {
+                    for (d2 in t2.detections) {
+                        if (abs(d1.frameTimestampMs - d2.frameTimestampMs) <= 200L) {
                             return true
                         }
                     }
@@ -160,28 +148,23 @@ class IdentityClusterer(
     }
 
     private fun computeCentroid(embeddings: List<FloatArray>): FloatArray {
-        if (embeddings.isEmpty()) {
-            return FloatArray(0)
-        }
-        val dimension = embeddings.first().size
-        val sum = FloatArray(dimension)
+        if (embeddings.isEmpty()) return FloatArray(0)
+        val dim = embeddings.first().size
+        val sum = FloatArray(dim)
 
-        for (embedding in embeddings) {
-            for (i in 0 until dimension) {
-                sum[i] += embedding[i]
+        for (emb in embeddings) {
+            for (i in 0 until dim) {
+                sum[i] += emb[i]
             }
         }
 
-        for (i in 0 until dimension) {
+        var sumSq = 0.0
+        for (i in 0 until dim) {
             sum[i] /= embeddings.size
+            sumSq += (sum[i] * sum[i]).toDouble()
         }
 
-        var normSquared = 0.0
-        for (value in sum) {
-            normSquared += value * value
-        }
-
-        val norm = sqrt(normSquared).toFloat().coerceAtLeast(1e-8f)
-        return FloatArray(dimension) { i -> sum[i] / norm }
+        val norm = sqrt(sumSq).toFloat().coerceAtLeast(1e-10f)
+        return FloatArray(dim) { i -> sum[i] / norm }
     }
 }
