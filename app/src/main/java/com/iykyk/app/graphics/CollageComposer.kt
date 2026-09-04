@@ -41,43 +41,40 @@ object CollageComposer {
         val canvas = Canvas(bitmap)
         val rng = java.util.Random(seed)
 
-        // Load custom user assets from app/src/main/assets/collage/ if available
         val customFlowers = loadBitmapsFromAssetDir(assetManager, "collage/decorations/flowers")
         val customTapes = loadBitmapsFromAssetDir(assetManager, "collage/decorations/tape")
         val customStickers = loadBitmapsFromAssetDir(assetManager, "collage/decorations/stickers")
         val customStars = loadBitmapsFromAssetDir(assetManager, "collage/decorations/stars")
         val customBackgrounds = loadBitmapsFromAssetDir(assetManager, "collage/backgrounds")
 
-        // 1. Compute dynamic layout slots for the current theme and person count
+        // 1. Layout slots
         val baseSlots = CollageLayouts.getSlots(theme, people.size)
-
-        // Apply randomized tilt mode: 70% organic playful tilts, 30% connected straight
-        val tiltMode = rng.nextInt(3) // 0: Playful tilts, 1: Moderate tilts, 2: Straight / connected
+        val tiltMode = rng.nextInt(3)
         val slots = baseSlots.mapIndexed { idx, slot ->
             val angleJitter = when (tiltMode) {
-                0 -> slot.rotationDeg + (rng.nextFloat() * 4f - 2f)
-                1 -> slot.rotationDeg * 0.5f + (rng.nextFloat() * 2f - 1f)
-                else -> 0f // Connected / straight alignment
+                0 -> slot.rotationDeg + (rng.nextFloat() * 3f - 1.5f)
+                1 -> slot.rotationDeg * 0.7f + (rng.nextFloat() * 1.5f - 0.75f)
+                else -> 0f
             }
             slot.copy(rotationDeg = angleJitter)
         }
 
-        // 2. Draw Theme-specific Background & Ambient Texture (or custom user background)
+        // 2. Background
         if (customBackgrounds.isNotEmpty()) {
             val bgBmp = customBackgrounds[rng.nextInt(customBackgrounds.size)]
             drawBitmapCenterCrop(canvas, bgBmp, RectF(0f, 0f, CANVAS_WIDTH.toFloat(), CANVAS_HEIGHT.toFloat()))
+            if (theme == CollageTheme.FLORAL_SCRAPBOOK) {
+                drawScrapbookPaperScraps(canvas, rng)
+            }
         } else {
             when (theme) {
-                CollageTheme.FLORAL_SCRAPBOOK -> drawFloralBackground(canvas)
+                CollageTheme.FLORAL_SCRAPBOOK -> drawFloralBackground(canvas, rng)
                 CollageTheme.VINTAGE_FILM -> drawVintageBackground(canvas, slots)
                 CollageTheme.CYBER_GLOW -> drawCyberBackground(canvas)
             }
         }
 
-        // 3. Draw Header Title & Theme Accents
-        drawHeader(canvas, theme, customTitle, people.size)
-
-        // 4. Render each person card with theme styling
+        // 3. Render person cards
         for (i in people.indices) {
             if (i < slots.size) {
                 val person = people[i]
@@ -93,18 +90,26 @@ object CollageComposer {
             }
         }
 
-        // 5. Draw Prominent Sticker & Flower Overlays (overlapping photo corners & margins)
-        drawProminentAestheticStickers(
-            canvas = canvas,
-            slots = slots,
-            customFlowers = customFlowers,
-            customStickers = customStickers,
-            customStars = customStars,
-            rng = rng
-        )
-
-        // 6. Draw Theme-tailored footer & brand signature
-        drawFooter(canvas, theme, people.size, totalAppearances, logoBitmap)
+        // 4. Decorations (stickers, flowers, washi badges, film accents)
+        when (theme) {
+            CollageTheme.FLORAL_SCRAPBOOK -> {
+                drawFloralScrapbookDecorations(
+                    canvas = canvas,
+                    slots = slots,
+                    customFlowers = customFlowers,
+                    customStickers = customStickers,
+                    rng = rng
+                )
+            }
+            CollageTheme.VINTAGE_FILM -> {
+                drawVintageFilmStamps(canvas)
+                drawFooter(canvas, theme, people.size, totalAppearances, logoBitmap)
+            }
+            CollageTheme.CYBER_GLOW -> {
+                drawCyberSparkles(canvas, customStars)
+                drawFooter(canvas, theme, people.size, totalAppearances, logoBitmap)
+            }
+        }
 
         return bitmap
     }
@@ -115,59 +120,109 @@ object CollageComposer {
         try {
             val files = assetManager.list(dirPath) ?: emptyArray()
             for (file in files) {
-                if (file.endsWith(".png", true) || file.endsWith(".jpg", true) || file.endsWith(".webp", true)) {
+                if (file.endsWith(".png", true) || file.endsWith(".jpg", true) || file.endsWith(".jpeg", true) || file.endsWith(".webp", true)) {
                     try {
                         assetManager.open("$dirPath/$file").use { input ->
                             android.graphics.BitmapFactory.decodeStream(input)?.let { bmp ->
                                 bitmaps.add(bmp)
                             }
                         }
-                    } catch (e: Exception) {
-                        // ignore unreadable file
+                    } catch (_: Exception) {
+                    }
+                } else if (file.endsWith(".svg", true)) {
+                    try {
+                        assetManager.open("$dirPath/$file").use { input ->
+                            val svg = com.caverock.androidsvg.SVG.getFromInputStream(input)
+                            val viewBox = svg.documentViewBox
+                            val docW = if (svg.documentWidth > 0) svg.documentWidth else (viewBox?.width() ?: 512f)
+                            val docH = if (svg.documentHeight > 0) svg.documentHeight else (viewBox?.height() ?: 512f)
+                            val maxDim = maxOf(docW, docH).coerceAtLeast(1f)
+                            val targetSize = 512f
+                            val scale = targetSize / maxDim
+                            val w = (docW * scale).toInt().coerceIn(64, 1024)
+                            val h = (docH * scale).toInt().coerceIn(64, 1024)
+                            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                            val svgCanvas = Canvas(bmp)
+                            svg.renderToCanvas(svgCanvas, RectF(0f, 0f, w.toFloat(), h.toFloat()))
+                            bitmaps.add(bmp)
+                        }
+                    } catch (_: Exception) {
                     }
                 }
             }
-        } catch (e: Exception) {
-            // ignore listing errors
+        } catch (_: Exception) {
         }
         return bitmaps
     }
 
-    // =========================================================================
-    // THEME 1: FLORAL SCRAPBOOK RENDERER
-    // =========================================================================
+    private fun drawScrapbookPaperScraps(canvas: Canvas, rng: java.util.Random) {
+        // Torn kraft paper underlay scrap behind main photos
+        val tornScrapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#D8C1A3")
+            style = Paint.Style.FILL
+            setShadowLayer(14f, 0f, 6f, Color.parseColor("#25201505"))
+        }
+        val scrapPath = Path().apply {
+            moveTo(35f, 130f)
+            quadTo(540f, 110f, 1045f, 140f)
+            quadTo(1060f, 960f, 1040f, 1780f)
+            quadTo(540f, 1800f, 40f, 1770f)
+            quadTo(20f, 960f, 35f, 130f)
+            close()
+        }
+        canvas.drawPath(scrapPath, tornScrapPaint)
 
-    private fun drawFloralBackground(canvas: Canvas) {
-        // Warm parchment cream gradient
+        // Torn deckle paper scrap on right margin
+        val rightScrapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EFE5D5")
+            style = Paint.Style.FILL
+            setShadowLayer(10f, -2f, 4f, Color.parseColor("#201A1005"))
+        }
+        val rightScrapPath = Path().apply {
+            moveTo(880f, 540f)
+            lineTo(1080f, 530f)
+            lineTo(1080f, 980f)
+            lineTo(890f, 990f)
+            quadTo(870f, 760f, 880f, 540f)
+            close()
+        }
+        canvas.drawPath(rightScrapPath, rightScrapPaint)
+
+        // Hand-drawn sketch heart on right paper scrap
+        drawHandDrawnHeart(canvas, 935f, 700f, 44f)
+    }
+
+    private fun drawFloralBackground(canvas: Canvas, rng: java.util.Random) {
+        // Base vintage kraft paper tone
         val bgPaint = Paint().apply {
             shader = LinearGradient(
                 0f, 0f,
                 CANVAS_WIDTH.toFloat(), CANVAS_HEIGHT.toFloat(),
                 intArrayOf(
-                    Color.parseColor("#FAF7F2"),
-                    Color.parseColor("#F4ECE1"),
-                    Color.parseColor("#EFE5D8"),
-                    Color.parseColor("#E8DBC9")
+                    Color.parseColor("#E9DAC4"),
+                    Color.parseColor("#DEC7AC"),
+                    Color.parseColor("#D4B999"),
+                    Color.parseColor("#CBB08F")
                 ),
                 floatArrayOf(0.0f, 0.35f, 0.70f, 1.0f),
                 Shader.TileMode.CLAMP
             )
         }
         canvas.drawRect(0f, 0f, CANVAS_WIDTH.toFloat(), CANVAS_HEIGHT.toFloat(), bgPaint)
+        drawScrapbookPaperScraps(canvas, rng)
 
-        // Subtle soft botanical texture circles
-        val auraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Subtle vintage paper noise grain
+        val grainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8E6E4F")
+            alpha = 25
             style = Paint.Style.FILL
         }
-        auraPaint.color = Color.parseColor("#FCE7D6")
-        auraPaint.alpha = 60
-        canvas.drawCircle(150f, 300f, 220f, auraPaint)
-        auraPaint.color = Color.parseColor("#E8F0E4")
-        auraPaint.alpha = 50
-        canvas.drawCircle(950f, 900f, 260f, auraPaint)
-        auraPaint.color = Color.parseColor("#FDE4E4")
-        auraPaint.alpha = 60
-        canvas.drawCircle(200f, 1500f, 240f, auraPaint)
+        for (i in 0 until 180) {
+            val gx = rng.nextFloat() * CANVAS_WIDTH
+            val gy = rng.nextFloat() * CANVAS_HEIGHT
+            val gr = 0.6f + rng.nextFloat() * 1.2f
+            canvas.drawCircle(gx, gy, gr, grainPaint)
+        }
     }
 
     private fun drawFloralPolaroid(
@@ -187,32 +242,32 @@ object CollageComposer {
             canvas.rotate(rotation, centerX, centerY)
         }
 
-        // Soft realistic drop shadow for paper
+        // Realistic paper drop shadow
         val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#25201A")
-            alpha = 40
-            setShadowLayer(26f, 0f, 14f, Color.parseColor("#35221144"))
+            alpha = 45
+            setShadowLayer(24f, 0f, 12f, Color.parseColor("#40221105"))
         }
-        val cardRadius = 16f
+        val cardRadius = 14f
         canvas.drawRoundRect(rect, cardRadius, cardRadius, shadowPaint)
 
-        // White/Ivory Polaroid paper card
+        // Ivory polaroid paper card
         val paperPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFFFFF")
+            color = Color.parseColor("#FAF8F5")
             style = Paint.Style.FILL
         }
         canvas.drawRoundRect(rect, cardRadius, cardRadius, paperPaint)
 
-        // Subtle warm border
+        // Subtle warm border line
         val borderStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#EFE8DE")
+            color = Color.parseColor("#E7DEC8")
             style = Paint.Style.STROKE
-            strokeWidth = 2f
+            strokeWidth = 1.5f
         }
         canvas.drawRoundRect(rect, cardRadius, cardRadius, borderStroke)
 
-        // Photo cutout (with polaroid bottom border)
-        val margin = 16f
+        // Photo cutout
+        val margin = 14f
         val bottomExtra = slot.polaroidBottomExtra.coerceAtLeast(36f)
         val photoRect = RectF(
             rect.left + margin,
@@ -220,7 +275,7 @@ object CollageComposer {
             rect.right - margin,
             rect.bottom - bottomExtra
         )
-        val photoRadius = 10f
+        val photoRadius = 8f
 
         val clipPath = Path().apply {
             addRoundRect(photoRect, photoRadius, photoRadius, Path.Direction.CW)
@@ -230,38 +285,37 @@ object CollageComposer {
         drawBitmapCenterCrop(canvas, bitmap, photoRect)
         canvas.restore()
 
-        // Washi Tape on top edge
+        // Washi Tape at top of polaroid
         if (customTapes.isNotEmpty()) {
             val tapeBmp = customTapes[index % customTapes.size]
-            val tapeW = 120f
-            val tapeH = (tapeW * tapeBmp.height / tapeBmp.width.coerceAtLeast(1)).coerceIn(24f, 60f)
+            val tapeW = 125f
+            val tapeH = (tapeW * tapeBmp.height / tapeBmp.width.coerceAtLeast(1)).coerceIn(24f, 50f)
             val isLeft = (index % 2 == 0)
-            val tapeX = if (isLeft) rect.left + 20f else rect.right - tapeW - 20f
+            val tapeX = if (isLeft) rect.left + 35f else rect.right - tapeW - 35f
             val tapeY = rect.top - tapeH / 2f
             canvas.save()
-            canvas.rotate(if (isLeft) -8f else 7f, tapeX + tapeW / 2f, tapeY + tapeH / 2f)
+            canvas.rotate(if (isLeft) -6f else 6f, tapeX + tapeW / 2f, tapeY + tapeH / 2f)
             canvas.drawBitmap(tapeBmp, null, RectF(tapeX, tapeY, tapeX + tapeW, tapeY + tapeH), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             canvas.restore()
         } else {
-            // Procedurally synthesized translucent tape: kraft, beige, pink, transparent
             val tapeStyles = listOf(
+                TapeGenerator.TapeStyle.GINGHAM_PINK,
                 TapeGenerator.TapeStyle.KRAFT,
-                TapeGenerator.TapeStyle.BEIGE,
-                TapeGenerator.TapeStyle.PINK,
-                TapeGenerator.TapeStyle.TRANSPARENT
+                TapeGenerator.TapeStyle.SAGE_GREEN,
+                TapeGenerator.TapeStyle.GINGHAM_PINK,
+                TapeGenerator.TapeStyle.BEIGE
             )
             val chosenStyle = tapeStyles[index % tapeStyles.size]
-            val isLeft = (index % 2 == 0)
-            val tapeW = 130f
-            val tapeH = 36f
-            val centerX = if (isLeft) rect.left + 55f else rect.right - 55f
-            val centerY = rect.top + 2f
-            val rot = if (isLeft) -8.5f else 7.5f
+            val tapeW = 140f
+            val tapeH = 38f
+            val tapeCenterX = rect.centerX()
+            val tapeCenterY = rect.top + 2f
+            val rot = if (index % 2 == 0) -4f else 3.5f
 
             TapeGenerator.drawTapeOnCanvas(
                 canvas = canvas,
-                centerX = centerX,
-                centerY = centerY,
+                centerX = tapeCenterX,
+                centerY = tapeCenterY,
                 style = chosenStyle,
                 rotationDeg = rot,
                 width = tapeW,
@@ -273,181 +327,599 @@ object CollageComposer {
         canvas.restore()
     }
 
-    private fun drawProminentAestheticStickers(
+    private fun drawFloralScrapbookDecorations(
         canvas: Canvas,
         slots: List<CollageLayouts.LayoutSlot>,
         customFlowers: List<Bitmap> = emptyList(),
         customStickers: List<Bitmap> = emptyList(),
-        customStars: List<Bitmap> = emptyList(),
         rng: java.util.Random
     ) {
-        val userAssets = (customFlowers + customStickers + customStars)
+        // 1. Botanical Branches in corners & margins
+        drawBabysBreathSprig(canvas, 130f, 140f, 240f, 220f)
+        drawBotanicalLeafBranch(canvas, 1020f, 90f, 880f, 260f, 5, Color.parseColor("#4A6046"))
+        drawBotanicalLeafBranch(canvas, 40f, 1000f, 110f, 1220f, 4, Color.parseColor("#5A6B53"))
+        drawBabysBreathSprig(canvas, 840f, 1560f, 960f, 1680f)
+        drawBabysBreathSprig(canvas, 190f, 1640f, 270f, 1760f)
 
-        // 1. Draw stickers overlapping photo card corners for authentic scrapbook look
-        for ((idx, slot) in slots.withIndex()) {
-            val rect = slot.rect
-            val cornerSpot = when (idx % 4) {
-                0 -> Pair(rect.right - 10f, rect.bottom - 10f) // Bottom-Right
-                1 -> Pair(rect.left + 10f, rect.top + 10f)     // Top-Left
-                2 -> Pair(rect.left + 15f, rect.bottom - 15f) // Bottom-Left
-                else -> Pair(rect.right - 15f, rect.top + 15f) // Top-Right
-            }
+        // 2. Vintage 35mm film strip snippet at bottom right corner
+        drawFilmStripSnippet(canvas, 910f, 1680f, 320f, 75f, 40f)
 
-            if (userAssets.isNotEmpty()) {
-                val assetBmp = userAssets[idx % userAssets.size]
-                val size = 70f + rng.nextFloat() * 20f
-                val destRect = RectF(cornerSpot.first - size / 2f, cornerSpot.second - size / 2f, cornerSpot.first + size / 2f, cornerSpot.second + size / 2f)
-                canvas.save()
-                canvas.rotate((rng.nextFloat() * 24f - 12f), cornerSpot.first, cornerSpot.second)
-                // Draw 3D sticker drop shadow
-                val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#40000000")
-                    setShadowLayer(10f, 2f, 4f, Color.parseColor("#50000000"))
-                }
-                canvas.drawCircle(cornerSpot.first, cornerSpot.second + 3f, size / 2f, shadowPaint)
-                canvas.drawBitmap(assetBmp, null, destRect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-                canvas.restore()
-            } else {
-                // Built-in die-cut stickers placed over card corners
-                when (idx % 4) {
-                    0 -> drawDaisySticker(canvas, cornerSpot.first, cornerSpot.second, 32f, Color.parseColor("#F582A8"), true)
-                    1 -> drawSmileySticker(canvas, cornerSpot.first, cornerSpot.second, 28f)
-                    2 -> drawBlossomSticker(canvas, cornerSpot.first, cornerSpot.second, 30f, Color.parseColor("#FFBE53"))
-                    else -> drawStarSparkle(canvas, cornerSpot.first, cornerSpot.second, 26f, Color.parseColor("#00F5FF"))
-                }
-            }
-        }
+        // 3. Vintage ticket/stamp on bottom-left ("GOOD PEOPLE GOOD TIMES ♡")
+        drawVintageTicketStamp(canvas, 125f, 1650f, 160f, 210f, -8f)
 
-        // 2. Draw aesthetic stickers in header, margins, and negative spaces
-        val marginSpots = listOf(
-            Triple(110f, 150f, 46f),
-            Triple(970f, 160f, 48f),
-            Triple(65f, 960f, 42f),
-            Triple(1015f, 980f, 46f),
-            Triple(130f, 1690f, 50f),
-            Triple(950f, 1680f, 48f)
+    private data class ScrapbookAnchor(
+        val cx: Float,
+        val cy: Float,
+        val size: Float,
+        val rotationDeg: Float,
+        val isStickerAnchor: Boolean = false,
+        val proceduralType: Int = 0
+    )
+
+    private fun drawFloralScrapbookDecorations(
+        canvas: Canvas,
+        slots: List<CollageLayouts.LayoutSlot>,
+        customFlowers: List<Bitmap> = emptyList(),
+        customStickers: List<Bitmap> = emptyList(),
+        rng: java.util.Random
+    ) {
+        // Botanical branches and baby's breath sprigs across corners and margins
+        drawBabysBreathSprig(canvas, 130f, 140f, 240f, 220f)
+        drawBotanicalLeafBranch(canvas, 1020f, 90f, 880f, 260f, 5, Color.parseColor("#4A6046"))
+        drawBotanicalLeafBranch(canvas, 40f, 1000f, 110f, 1220f, 4, Color.parseColor("#5A6B53"))
+        drawBotanicalLeafBranch(canvas, 1040f, 1350f, 940f, 1530f, 4, Color.parseColor("#4A6046"))
+        drawBabysBreathSprig(canvas, 840f, 1560f, 960f, 1680f)
+        drawBabysBreathSprig(canvas, 190f, 1640f, 270f, 1760f)
+
+        // Vintage 35mm film strip snippet at bottom right
+        drawFilmStripSnippet(canvas, 910f, 1680f, 320f, 75f, 40f)
+
+        // Vintage ticket stamp at bottom left
+        drawVintageTicketStamp(canvas, 125f, 1650f, 160f, 210f, -8f)
+
+        // Torn sage green washi brand label at bottom center
+        drawTornWashiBrandLabel(canvas, 540f, 1790f, 350f, 96f)
+
+        val anchors = listOf(
+            ScrapbookAnchor(120f, 130f, 185f, -14f, false, 0),
+            ScrapbookAnchor(540f, 115f, 155f, 6f, true, 2),
+            ScrapbookAnchor(950f, 125f, 185f, 16f, false, 0),
+            ScrapbookAnchor(100f, 460f, 150f, -10f, false, 1),
+            ScrapbookAnchor(980f, 460f, 160f, 12f, true, 2),
+            ScrapbookAnchor(540f, 490f, 140f, -8f, false, 1),
+            ScrapbookAnchor(95f, 720f, 205f, 8f, false, 0),
+            ScrapbookAnchor(125f, 900f, 155f, -15f, false, 1),
+            ScrapbookAnchor(985f, 740f, 195f, -12f, true, 2),
+            ScrapbookAnchor(950f, 930f, 165f, 14f, false, 0),
+            ScrapbookAnchor(240f, 1180f, 165f, -8f, false, 1),
+            ScrapbookAnchor(840f, 1190f, 165f, 10f, true, 2),
+            ScrapbookAnchor(105f, 1490f, 145f, 12f, false, 1),
+            ScrapbookAnchor(240f, 1730f, 185f, -14f, false, 0),
+            ScrapbookAnchor(980f, 1490f, 145f, -10f, false, 1),
+            ScrapbookAnchor(830f, 1710f, 195f, 16f, false, 0),
+            ScrapbookAnchor(950f, 1750f, 185f, -6f, false, 1),
+            ScrapbookAnchor(320f, 1830f, 125f, -8f, false, 1),
+            ScrapbookAnchor(760f, 1830f, 125f, 10f, false, 1)
         )
 
-        for ((idx, spot) in marginSpots.withIndex()) {
-            val (x, y, size) = spot
-            if (userAssets.isNotEmpty()) {
-                val assetBmp = userAssets[(idx + 2) % userAssets.size]
-                val destRect = RectF(x - size / 2f, y - size / 2f, x + size / 2f, y + size / 2f)
-                canvas.drawBitmap(assetBmp, null, destRect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        val shuffledFlowers = if (customFlowers.isNotEmpty()) customFlowers.shuffled(rng) else emptyList()
+        val shuffledStickers = if (customStickers.isNotEmpty()) customStickers.shuffled(rng) else emptyList()
+
+        var flowerIdx = 0
+        var stickerIdx = 0
+
+        for (anchor in anchors) {
+            val rotJitter = anchor.rotationDeg + (rng.nextFloat() * 10f - 5f)
+            val sizeJitter = anchor.size * (0.92f + rng.nextFloat() * 0.16f)
+
+            if (anchor.isStickerAnchor && shuffledStickers.isNotEmpty()) {
+                val stickerBmp = shuffledStickers[stickerIdx % shuffledStickers.size]
+                stickerIdx++
+                drawBitmapDecoration(canvas, stickerBmp, anchor.cx, anchor.cy, sizeJitter, rotJitter)
+            } else if (shuffledFlowers.isNotEmpty()) {
+                val flowerBmp = shuffledFlowers[flowerIdx % shuffledFlowers.size]
+                flowerIdx++
+                drawBitmapDecoration(canvas, flowerBmp, anchor.cx, anchor.cy, sizeJitter, rotJitter)
             } else {
-                when (idx % 3) {
-                    0 -> drawDaisySticker(canvas, x, y, 26f, Color.parseColor("#FFBE53"), false)
-                    1 -> drawStarSparkle(canvas, x, y, 20f, Color.parseColor("#F582A8"))
-                    else -> drawBlossomSticker(canvas, x, y, 24f, Color.parseColor("#A3D9C9"))
+                when (anchor.proceduralType) {
+                    0 -> drawRealisticDaisy(canvas, anchor.cx, anchor.cy, sizeJitter)
+                    1 -> drawPressedPeachBlossom(canvas, anchor.cx, anchor.cy, sizeJitter, if (flowerIdx % 2 == 0) Color.parseColor("#E09585") else Color.parseColor("#E28B9B"))
+                    2 -> drawButterflySticker(canvas, anchor.cx, anchor.cy, sizeJitter)
                 }
+                flowerIdx++
             }
         }
-
-        // Golden center sparkles
-        drawStarSparkle(canvas, 540f, 175f, 18f, Color.parseColor("#E5A93B"))
-        drawStarSparkle(canvas, 540f, 880f, 16f, Color.parseColor("#F582A8"))
     }
 
-    private fun drawSmileySticker(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        // Die-cut white border
-        val whiteBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-            setShadowLayer(8f, 0f, 4f, Color.parseColor("#40000000"))
-        }
-        canvas.drawCircle(cx, cy, radius + 4f, whiteBorderPaint)
+    private fun drawBitmapDecoration(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        cx: Float,
+        cy: Float,
+        targetWidth: Float,
+        rotationDeg: Float
+    ) {
+        canvas.save()
+        canvas.rotate(rotationDeg, cx, cy)
+        val aspect = bitmap.height.toFloat() / bitmap.width.coerceAtLeast(1)
+        val targetHeight = targetWidth * aspect
+        val halfW = targetWidth / 2f
+        val halfH = targetHeight / 2f
+        val rect = RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
 
-        // Yellow face
-        val facePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFD93D")
-            style = Paint.Style.FILL
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#30150A05")
+            setShadowLayer(14f, 2f, 6f, Color.parseColor("#35150A05"))
         }
-        canvas.drawCircle(cx, cy, radius, facePaint)
-
-        // Eyes
-        val featurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2B2B2B")
-            style = Paint.Style.FILL
-        }
-        val eyeOffset = radius * 0.35f
-        canvas.drawCircle(cx - eyeOffset, cy - radius * 0.2f, radius * 0.14f, featurePaint)
-        canvas.drawCircle(cx + eyeOffset, cy - radius * 0.2f, radius * 0.14f, featurePaint)
-
-        // Smile arc
-        val smilePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2B2B2B")
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            strokeCap = Paint.Cap.ROUND
-        }
-        val smileRect = RectF(cx - radius * 0.45f, cy - radius * 0.1f, cx + radius * 0.45f, cy + radius * 0.55f)
-        canvas.drawArc(smileRect, 20f, 140f, false, smilePaint)
+        canvas.drawRoundRect(rect, 10f, 10f, shadowPaint)
+        canvas.drawBitmap(bitmap, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+        canvas.restore()
     }
 
-    private fun drawBlossomSticker(canvas: Canvas, cx: Float, cy: Float, radius: Float, blossomColor: Int) {
-        // Die-cut white border
-        val whiteBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.WHITE
-            this.style = Paint.Style.FILL
-            setShadowLayer(8f, 0f, 4f, Color.parseColor("#40000000"))
+    private fun drawRealisticDaisy(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val radius = size / 2f
+
+        // Soft drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#40180F05")
+            setShadowLayer(16f, 0f, 8f, Color.parseColor("#45180F05"))
         }
-        canvas.drawCircle(cx, cy, radius + 4f, whiteBorderPaint)
+        canvas.drawCircle(cx, cy + 5f, radius * 0.9f, shadowPaint)
+
+        // 16 Petals in double layer
+        val petalCount = 16
+        val petalLength = radius * 0.92f
+        val petalWidth = radius * 0.22f
 
         val petalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = blossomColor
-            this.style = Paint.Style.FILL
-            alpha = 230
+            color = Color.parseColor("#FCFAF5")
+            style = Paint.Style.FILL
         }
-        val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.WHITE
-            this.style = Paint.Style.FILL
+        val petalShadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EDE4D4")
+            style = Paint.Style.FILL
+        }
+
+        // Back layer petals
+        for (i in 0 until petalCount) {
+            val angle = i * (360f / petalCount) + 11.25f
+            canvas.save()
+            canvas.rotate(angle, cx, cy)
+            val pRect = RectF(cx - petalWidth * 0.45f, cy - petalLength, cx + petalWidth * 0.45f, cy)
+            canvas.drawRoundRect(pRect, petalWidth * 0.45f, petalWidth * 0.45f, petalShadePaint)
+            canvas.restore()
+        }
+
+        // Front layer petals
+        for (i in 0 until petalCount) {
+            val angle = i * (360f / petalCount)
+            canvas.save()
+            canvas.rotate(angle, cx, cy)
+            val pRect = RectF(cx - petalWidth * 0.5f, cy - petalLength, cx + petalWidth * 0.5f, cy)
+            canvas.drawRoundRect(pRect, petalWidth * 0.5f, petalWidth * 0.5f, petalPaint)
+            canvas.restore()
+        }
+
+        // Golden-amber center stamen
+        val stamenRadius = radius * 0.36f
+        val stamenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cx, cy - stamenRadius,
+                cx, cy + stamenRadius,
+                intArrayOf(
+                    Color.parseColor("#FFC83B"),
+                    Color.parseColor("#E59114"),
+                    Color.parseColor("#A86005")
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, stamenRadius, stamenPaint)
+
+        // Stamen texture dots
+        val texturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#7A4100")
+            alpha = 140
+            style = Paint.Style.FILL
+        }
+        val dotCount = 12
+        for (i in 0 until dotCount) {
+            val a = Math.toRadians((i * (360.0 / dotCount)))
+            val dist = stamenRadius * 0.55f
+            val dx = cx + (dist * cos(a)).toFloat()
+            val dy = cy + (dist * sin(a)).toFloat()
+            canvas.drawCircle(dx, dy, 2.5f, texturePaint)
+        }
+    }
+
+    private fun drawPressedPeachBlossom(canvas: Canvas, cx: Float, cy: Float, size: Float, blossomColor: Int) {
+        val radius = size / 2f
+
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#30150A02")
+            setShadowLayer(12f, 0f, 6f, Color.parseColor("#35150A02"))
+        }
+        canvas.drawCircle(cx, cy + 4f, radius * 0.85f, shadowPaint)
+
+        val petalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = blossomColor
+            alpha = 240
+            style = Paint.Style.FILL
         }
 
         val petals = 5
         for (i in 0 until petals) {
-            val angle = (i * (360.0 / petals)).toFloat()
-            val rad = Math.toRadians(angle.toDouble())
-            val px = cx + (radius * 0.6f * cos(rad)).toFloat()
-            val py = cy + (radius * 0.6f * sin(rad)).toFloat()
-            canvas.drawCircle(px, py, radius * 0.5f, petalPaint)
+            val angle = i * (360.0 / petals)
+            val rad = Math.toRadians(angle)
+            val px = cx + (radius * 0.52f * cos(rad)).toFloat()
+            val py = cy + (radius * 0.52f * sin(rad)).toFloat()
+            canvas.drawCircle(px, py, radius * 0.48f, petalPaint)
         }
-        canvas.drawCircle(cx, cy, radius * 0.35f, centerPaint)
+
+        // Center stamen
+        val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8E4A3B")
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, radius * 0.22f, centerPaint)
+
+        val innerCenter = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFE0A3")
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, radius * 0.12f, innerCenter)
     }
 
-    private fun drawDaisySticker(canvas: Canvas, cx: Float, cy: Float, radius: Float, petalColor: Int, withDieCutBorder: Boolean = false) {
-        if (withDieCutBorder) {
-            val whiteBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.color = Color.WHITE
-                this.style = Paint.Style.FILL
-                setShadowLayer(8f, 0f, 4f, Color.parseColor("#40000000"))
-            }
-            canvas.drawCircle(cx, cy, radius + 5f, whiteBorderPaint)
+    private fun drawButterflySticker(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val radius = size / 2f
+
+        canvas.save()
+        canvas.rotate(14f, cx, cy)
+
+        // Die-cut white border with drop shadow
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+            setShadowLayer(14f, 0f, 7f, Color.parseColor("#45000000"))
+        }
+        val wingPath = Path().apply {
+            // Upper right wing
+            moveTo(cx, cy)
+            cubicTo(cx + radius * 0.4f, cy - radius * 0.9f, cx + radius * 1.05f, cy - radius * 0.6f, cx + radius * 0.85f, cy - radius * 0.1f)
+            // Lower right wing
+            cubicTo(cx + radius * 0.95f, cy + radius * 0.4f, cx + radius * 0.5f, cy + radius * 0.85f, cx, cy + radius * 0.25f)
+            // Lower left wing
+            cubicTo(cx - radius * 0.5f, cy + radius * 0.85f, cx - radius * 0.95f, cy + radius * 0.4f, cx - radius * 0.85f, cy - radius * 0.1f)
+            // Upper left wing
+            cubicTo(cx - radius * 1.05f, cy - radius * 0.6f, cx - radius * 0.4f, cy - radius * 0.9f, cx, cy)
+            close()
+        }
+        canvas.drawPath(wingPath, borderPaint)
+
+        // Wing Peach-Terracotta Fill
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cx, cy - radius * 0.8f,
+                cx, cy + radius * 0.8f,
+                intArrayOf(
+                    Color.parseColor("#F5B7B1"),
+                    Color.parseColor("#E59866"),
+                    Color.parseColor("#BA4A00")
+                ),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            style = Paint.Style.FILL
+        }
+        val innerWing = Path().apply {
+            val s = 0.88f
+            moveTo(cx, cy)
+            cubicTo(cx + radius * 0.4f * s, cy - radius * 0.9f * s, cx + radius * 1.05f * s, cy - radius * 0.6f * s, cx + radius * 0.85f * s, cy - radius * 0.1f * s)
+            cubicTo(cx + radius * 0.95f * s, cy + radius * 0.4f * s, cx + radius * 0.5f * s, cy + radius * 0.85f * s, cx, cy + radius * 0.25f * s)
+            cubicTo(cx - radius * 0.5f * s, cy + radius * 0.85f * s, cx - radius * 0.95f * s, cy + radius * 0.4f * s, cx - radius * 0.85f * s, cy - radius * 0.1f * s)
+            cubicTo(cx - radius * 1.05f * s, cy - radius * 0.6f * s, cx - radius * 0.4f * s, cy - radius * 0.9f * s, cx, cy)
+            close()
+        }
+        canvas.drawPath(innerWing, fillPaint)
+
+        // Wing vein accents
+        val veinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#4A2311")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.6f
+            alpha = 180
+        }
+        canvas.drawLine(cx, cy, cx + radius * 0.65f, cy - radius * 0.45f, veinPaint)
+        canvas.drawLine(cx, cy, cx - radius * 0.65f, cy - radius * 0.45f, veinPaint)
+        canvas.drawLine(cx, cy, cx + radius * 0.5f, cy + radius * 0.4f, veinPaint)
+        canvas.drawLine(cx, cy, cx - radius * 0.5f, cy + radius * 0.4f, veinPaint)
+
+        // Butterfly body & antennae
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2C180E")
+            style = Paint.Style.FILL
+        }
+        val bodyRect = RectF(cx - 3.5f, cy - radius * 0.5f, cx + 3.5f, cy + radius * 0.4f)
+        canvas.drawRoundRect(bodyRect, 3.5f, 3.5f, bodyPaint)
+
+        val antPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2C180E")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+        }
+        canvas.drawLine(cx, cy - radius * 0.45f, cx - 12f, cy - radius * 0.7f, antPaint)
+        canvas.drawLine(cx, cy - radius * 0.45f, cx + 12f, cy - radius * 0.7f, antPaint)
+
+        canvas.restore()
+    }
+
+    private fun drawVintageTicketStamp(canvas: Canvas, cx: Float, cy: Float, width: Float, height: Float, rotationDeg: Float) {
+        canvas.save()
+        canvas.rotate(rotationDeg, cx, cy)
+
+        val halfW = width / 2f
+        val halfH = height / 2f
+        val rect = RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+
+        // Drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#35201505")
+            setShadowLayer(12f, 0f, 6f, Color.parseColor("#35201505"))
+        }
+        canvas.drawRoundRect(rect, 8f, 8f, shadowPaint)
+
+        // Ivory/Kraft ticket paper
+        val ticketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#F5EDE0")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(rect, 8f, 8f, ticketPaint)
+
+        // Double border line
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8A735E")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        canvas.drawRoundRect(rect, 8f, 8f, borderPaint)
+
+        val innerRect = RectF(rect.left + 6f, rect.top + 6f, rect.right - 6f, rect.bottom - 6f)
+        val innerBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#A89480")
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+        }
+        canvas.drawRoundRect(innerRect, 4f, 4f, innerBorder)
+
+        // Text: GOOD PEOPLE / GOOD TIMES / ♡
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#5A4839")
+            textSize = 21f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("GOOD", cx, cy - 36f, textPaint)
+        canvas.drawText("PEOPLE", cx, cy - 8f, textPaint)
+        canvas.drawText("GOOD", cx, cy + 20f, textPaint)
+        canvas.drawText("TIMES", cx, cy + 48f, textPaint)
+
+        // Heart symbol
+        val heartPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#8A6753")
+            style = Paint.Style.FILL
+        }
+        drawSolidHeart(canvas, cx, cy + 74f, 12f, heartPaint)
+
+        canvas.restore()
+    }
+
+    private fun drawFilmStripSnippet(canvas: Canvas, cx: Float, cy: Float, length: Float, width: Float, rotationDeg: Float) {
+        canvas.save()
+        canvas.rotate(rotationDeg, cx, cy)
+
+        val halfL = length / 2f
+        val halfW = width / 2f
+        val rect = RectF(cx - halfL, cy - halfW, cx + halfL, cy + halfW)
+
+        // Film strip drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#35100802")
+            setShadowLayer(10f, 0f, 5f, Color.parseColor("#35100802"))
+        }
+        canvas.drawRoundRect(rect, 6f, 6f, shadowPaint)
+
+        // Dark charcoal film plastic
+        val filmPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#1C1A19")
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(rect, 6f, 6f, filmPaint)
+
+        // Sprocket holes along top & bottom edges
+        val sprocketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#DED3C4")
+            style = Paint.Style.FILL
+        }
+        val sprocW = 10f
+        val sprocH = 14f
+        val step = 26f
+        var curX = rect.left + 14f
+        while (curX + sprocW < rect.right - 10f) {
+            canvas.drawRoundRect(RectF(curX, rect.top + 5f, curX + sprocW, rect.top + 5f + sprocH), 2.5f, 2.5f, sprocketPaint)
+            canvas.drawRoundRect(RectF(curX, rect.bottom - 5f - sprocH, curX + sprocW, rect.bottom - 5f), 2.5f, 2.5f, sprocketPaint)
+            curX += step
         }
 
-        val petalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = petalColor
-            this.style = Paint.Style.FILL
-            alpha = 230
+        canvas.restore()
+    }
+
+    private fun drawTornWashiBrandLabel(canvas: Canvas, cx: Float, cy: Float, width: Float, height: Float) {
+        canvas.save()
+
+        val halfW = width / 2f
+        val halfH = height / 2f
+        val left = cx - halfW
+        val top = cy - halfH
+        val right = cx + halfW
+        val bottom = cy + halfH
+
+        // Torn sage green paper path
+        val tornPath = Path().apply {
+            moveTo(left + 6f, top + 4f)
+            quadTo(cx, top - 2f, right - 4f, top + 3f)
+            lineTo(right + 2f, cy)
+            lineTo(right - 5f, bottom - 3f)
+            quadTo(cx, bottom + 4f, left + 4f, bottom - 2f)
+            lineTo(left - 3f, cy)
+            close()
         }
-        val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFE66D")
+
+        // Drop shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#35101505")
+            setShadowLayer(14f, 0f, 7f, Color.parseColor("#35101505"))
+        }
+        canvas.drawPath(tornPath, shadowPaint)
+
+        // Sage green paper fill
+        val sagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#74886F")
+            style = Paint.Style.FILL
+        }
+        canvas.drawPath(tornPath, sagePaint)
+
+        // Washi tape texture fibers
+        val fiberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#586A54")
+            alpha = 70
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+        }
+        for (i in 0 until 12) {
+            val fx = left + (i * 30f)
+            canvas.drawLine(fx, top, fx + 16f, bottom, fiberPaint)
+        }
+
+        // Text: ✦ iykyk ✦
+        val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#F9F6F0")
+            textSize = 48f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            setShadowLayer(4f, 1f, 1f, Color.parseColor("#30000000"))
+        }
+        canvas.drawText("✦  iykyk  ✦", cx, cy + 16f, brandPaint)
+
+        canvas.restore()
+    }
+
+    private fun drawBotanicalLeafBranch(canvas: Canvas, startX: Float, startY: Float, endX: Float, endY: Float, leafCount: Int, leafColor: Int) {
+        val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#4A3F33")
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+            strokeCap = Paint.Cap.ROUND
+        }
+        val leafPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = leafColor
+            style = Paint.Style.FILL
+            alpha = 220
+        }
+
+        // Curving main stem
+        val midX = (startX + endX) / 2f + 20f
+        val midY = (startY + endY) / 2f - 15f
+        val stemPath = Path().apply {
+            moveTo(startX, startY)
+            quadTo(midX, midY, endX, endY)
+        }
+        canvas.drawPath(stemPath, stemPaint)
+
+        // Paired eucalyptus/olive leaves along stem
+        for (i in 1..leafCount) {
+            val t = i.toFloat() / (leafCount + 1)
+            val lx = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * midX + t * t * endX
+            val ly = (1 - t) * (1 - t) * startY + 2 * (1 - t) * t * midY + t * t * endY
+
+            // Left leaf
+            canvas.save()
+            canvas.rotate(-35f, lx, ly)
+            val leftLeaf = RectF(lx - 26f, ly - 10f, lx + 26f, ly + 10f)
+            canvas.drawOval(leftLeaf, leafPaint)
+            canvas.restore()
+
+            // Right leaf
+            canvas.save()
+            canvas.rotate(35f, lx, ly)
+            val rightLeaf = RectF(lx - 24f, ly - 9f, lx + 24f, ly + 9f)
+            canvas.drawOval(rightLeaf, leafPaint)
+            canvas.restore()
+        }
+    }
+
+    private fun drawBabysBreathSprig(canvas: Canvas, startX: Float, startY: Float, endX: Float, endY: Float) {
+        val stemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#6B5E4F")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f
+        }
+        val flowerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FAF8F0")
             style = Paint.Style.FILL
         }
 
-        val petals = 6
-        for (i in 0 until petals) {
-            val angle = (i * (360.0 / petals)).toFloat()
-            val rad = Math.toRadians(angle.toDouble())
-            val px = cx + (radius * 0.9f * cos(rad)).toFloat()
-            val py = cy + (radius * 0.9f * sin(rad)).toFloat()
-            canvas.drawCircle(px, py, radius * 0.55f, petalPaint)
+        canvas.drawLine(startX, startY, endX, endY, stemPaint)
+
+        // Small blossom clusters
+        val spots = listOf(
+            Pair(endX, endY),
+            Pair(endX - 16f, endY - 12f),
+            Pair(endX + 14f, endY - 8f),
+            Pair((startX + endX) / 2f - 12f, (startY + endY) / 2f - 6f),
+            Pair((startX + endX) / 2f + 14f, (startY + endY) / 2f + 4f)
+        )
+        for (spot in spots) {
+            canvas.drawLine((startX + endX) / 2f, (startY + endY) / 2f, spot.first, spot.second, stemPaint)
+            canvas.drawCircle(spot.first, spot.second, 6f, flowerPaint)
+            canvas.drawCircle(spot.first + 2f, spot.second - 2f, 4f, flowerPaint)
         }
-        canvas.drawCircle(cx, cy, radius * 0.45f, centerPaint)
     }
 
-    // =========================================================================
-    // THEME 2: VINTAGE FILM (35mm Film Strip & Sprockets)
-    // =========================================================================
+    private fun drawHandDrawnHeart(canvas: Canvas, cx: Float, cy: Float, size: Float) {
+        val heartPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#7A5F48")
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        val path = Path().apply {
+            val top = cy - size * 0.7f
+            val bottom = cy + size * 0.85f
+            moveTo(cx, top + size * 0.35f)
+            cubicTo(cx, top - size * 0.2f, cx - size, top - size * 0.2f, cx - size, top + size * 0.35f)
+            cubicTo(cx - size, top + size * 0.7f, cx, bottom - size * 0.2f, cx, bottom)
+            cubicTo(cx, bottom - size * 0.2f, cx + size, top + size * 0.7f, cx + size, top + size * 0.35f)
+            cubicTo(cx + size, top - size * 0.2f, cx, top - size * 0.2f, cx, top + size * 0.35f)
+        }
+        canvas.drawPath(path, heartPaint)
+    }
+
+    private fun drawSolidHeart(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
+        val path = Path().apply {
+            val top = cy - size * 0.7f
+            val bottom = cy + size * 0.85f
+            moveTo(cx, top + size * 0.35f)
+            cubicTo(cx, top - size * 0.2f, cx - size, top - size * 0.2f, cx - size, top + size * 0.35f)
+            cubicTo(cx - size, top + size * 0.7f, cx, bottom - size * 0.2f, cx, bottom)
+            cubicTo(cx, bottom - size * 0.2f, cx + size, top + size * 0.7f, cx + size, top + size * 0.35f)
+            cubicTo(cx + size, top - size * 0.2f, cx, top - size * 0.2f, cx, top + size * 0.35f)
+            close()
+        }
+        canvas.drawPath(path, paint)
+    }
 
     private fun drawVintageBackground(canvas: Canvas, slots: List<CollageLayouts.LayoutSlot>) {
         // Dark analog darkroom film background
@@ -588,10 +1060,6 @@ object CollageComposer {
         }
         canvas.drawText("• SAFETY FILM • 35MM EXPOSURE •", CANVAS_WIDTH / 2f - 140f, 170f, stampPaint)
     }
-
-    // =========================================================================
-    // THEME 3: CYBER GLOW (Neon Glassmorphism & Cyber Nebula)
-    // =========================================================================
 
     private fun drawCyberBackground(canvas: Canvas) {
         // Deep midnight cosmic violet background
@@ -748,10 +1216,6 @@ object CollageComposer {
         canvas.drawPath(path, paint)
     }
 
-    // =========================================================================
-    // HEADER & FOOTER RENDERING
-    // =========================================================================
-
     private fun drawHeader(canvas: Canvas, theme: CollageTheme, customTitle: String?, peopleCount: Int) {
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textAlign = Paint.Align.CENTER
@@ -861,10 +1325,6 @@ object CollageComposer {
             }
         }
     }
-
-    // =========================================================================
-    // HELPER: CENTER CROP BITMAP DRAWING
-    // =========================================================================
 
     private fun drawBitmapCenterCrop(canvas: Canvas, bitmap: Bitmap, destRect: RectF) {
         val srcW = bitmap.width.toFloat()

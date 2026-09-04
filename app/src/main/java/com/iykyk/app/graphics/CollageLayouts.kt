@@ -29,9 +29,6 @@ object CollageLayouts {
         }
     }
 
-    // =========================================================================
-    // 1. FLORAL SCRAPBOOK LAYOUTS (Polaroid card tilts with washi tape)
-    // =========================================================================
     private fun getFloralSlots(count: Int): List<LayoutSlot> {
         val slots = mutableListOf<LayoutSlot>()
         when (count) {
@@ -61,7 +58,6 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(565f, botY + 15f, 565f + botW, botY + 15f + botH), 2.5f, 50f))
             }
             4 -> {
-                // 4 People Floral: 2x2 organic polaroid montage with alternating tilts
                 val cardW = 445f
                 val cardH = 590f
                 val left1 = 65f
@@ -75,26 +71,27 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(left2, row2Y - 10f, left2 + cardW, row2Y - 10f + cardH), -3.0f, 50f))
             }
             5 -> {
-                // 5 People Floral: 1 large Featured Polaroid top center + 4 Polaroids in 2x2 lower grid
-                val featW = 540f
-                val featH = 530f
-                val featX = (CANVAS_WIDTH - featW) / 2f
-                slots.add(LayoutSlot(RectF(featX, 200f, featX + featW, 200f + featH), -1.5f, 50f))
+                val cardW = 450f
+                val cardH = 510f
+                val topY = 190f
+                val botY = 1140f
 
-                val cardW = 435f
-                val cardH = 445f
-                val left1 = 65f
-                val left2 = 580f
-                val row1Y = 770f
-                val row2Y = 1250f
+                // Top row (2 photos)
+                slots.add(LayoutSlot(RectF(60f, topY, 60f + cardW, topY + cardH), -3.5f, 40f))
+                slots.add(LayoutSlot(RectF(570f, topY + 15f, 570f + cardW, topY + 15f + cardH), 3.0f, 40f))
 
-                slots.add(LayoutSlot(RectF(left1, row1Y, left1 + cardW, row1Y + cardH), 3.0f, 40f))
-                slots.add(LayoutSlot(RectF(left2, row1Y + 10f, left2 + cardW, row1Y + 10f + cardH), -2.5f, 40f))
-                slots.add(LayoutSlot(RectF(left1 + 5f, row2Y, left1 + 5f + cardW, row2Y + cardH), -3.0f, 40f))
-                slots.add(LayoutSlot(RectF(left2 - 5f, row2Y - 10f, left2 - 5f + cardW, row2Y - 10f + cardH), 2.5f, 40f))
+                // Center featured photo
+                val centerW = 530f
+                val centerH = 510f
+                val centerX = (CANVAS_WIDTH - centerW) / 2f
+                val centerY = 650f
+                slots.add(LayoutSlot(RectF(centerX, centerY, centerX + centerW, centerY + centerH), 0.5f, 40f))
+
+                // Bottom row (2 photos)
+                slots.add(LayoutSlot(RectF(60f, botY, 60f + cardW, botY + cardH), 2.5f, 40f))
+                slots.add(LayoutSlot(RectF(560f, botY + 15f, 560f + cardW, botY + 15f + cardH), -2.5f, 40f))
             }
             6 -> {
-                // 6 People Floral: 3 rows x 2 columns scrapbook montage with soft organic tilts
                 val cardW = 435f
                 val cardH = 460f
                 val left1 = 65f
@@ -111,7 +108,6 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(left2 + 5f, row3Y - 5f, left2 + 5f + cardW, row3Y - 5f + cardH), 3.0f, 40f))
             }
             else -> {
-                // Adaptive 2-column layout for 7+
                 val cardW = 430f
                 val cardH = 360f
                 val left1 = 70f
@@ -129,9 +125,6 @@ object CollageLayouts {
         return slots
     }
 
-    // =========================================================================
-    // 2. VINTAGE FILM LAYOUTS (35mm film strips, photobooth vertical tracks)
-    // =========================================================================
     private fun getVintageSlots(count: Int): List<LayoutSlot> {
         val slots = mutableListOf<LayoutSlot>()
         when (count) {
@@ -142,7 +135,6 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(left, 300f, left + w, 300f + h), 0f))
             }
             2 -> {
-                // Vertical 2-shot photobooth strip
                 val w = 680f
                 val h = 640f
                 val left = (CANVAS_WIDTH - w) / 2f
@@ -150,7 +142,6 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(left, 920f, left + w, 920f + h), 0f))
             }
             3 -> {
-                // 3-frame vertical photobooth strip
                 val w = 620f
                 val h = 460f
                 val left = (CANVAS_WIDTH - w) / 2f
@@ -159,22 +150,18 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(left, 1190f, left + w, 1190f + h), 0f))
             }
             4 -> {
-                // 4 People Vintage: Twin 2-photo 35mm film strips side-by-side
                 val frameW = 420f
                 val frameH = 610f
                 val leftStripX = 85f
                 val rightStripX = 575f
 
-                // Left film strip
                 slots.add(LayoutSlot(RectF(leftStripX, 220f, leftStripX + frameW, 220f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(leftStripX, 890f, leftStripX + frameW, 890f + frameH), 0f))
 
-                // Right film strip (staggered slightly for authentic analog photostrip look)
                 slots.add(LayoutSlot(RectF(rightStripX, 270f, rightStripX + frameW, 270f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(rightStripX, 940f, rightStripX + frameW, 940f + frameH), 0f))
             }
             5 -> {
-                // 5 People Vintage: 2 Top cinema frames + 3 Bottom vertical photobooth slots
                 val topW = 445f
                 val topH = 560f
                 slots.add(LayoutSlot(RectF(70f, 220f, 70f + topW, 220f + topH), 0f))
@@ -188,18 +175,15 @@ object CollageLayouts {
                 slots.add(LayoutSlot(RectF(725f, botY, 725f + botW, botY + botH), 0f))
             }
             6 -> {
-                // 6 People Vintage: Twin 3-frame Photobooth Strips side-by-side
                 val frameW = 420f
                 val frameH = 430f
                 val leftStripX = 85f
                 val rightStripX = 575f
 
-                // Left strip (3 frames)
                 slots.add(LayoutSlot(RectF(leftStripX, 210f, leftStripX + frameW, 210f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(leftStripX, 680f, leftStripX + frameW, 680f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(leftStripX, 1150f, leftStripX + frameW, 1150f + frameH), 0f))
 
-                // Right strip (3 frames, slightly offset)
                 slots.add(LayoutSlot(RectF(rightStripX, 250f, rightStripX + frameW, 250f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(rightStripX, 720f, rightStripX + frameW, 720f + frameH), 0f))
                 slots.add(LayoutSlot(RectF(rightStripX, 1190f, rightStripX + frameW, 1190f + frameH), 0f))
@@ -219,9 +203,6 @@ object CollageLayouts {
         return slots
     }
 
-    // =========================================================================
-    // 3. CYBER GLOW LAYOUTS (Frosted glassmorphism cards with neon gradient borders)
-    // =========================================================================
     private fun getCyberSlots(count: Int): List<LayoutSlot> {
         val slots = mutableListOf<LayoutSlot>()
         when (count) {

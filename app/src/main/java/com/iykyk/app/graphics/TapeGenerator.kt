@@ -21,7 +21,8 @@ object TapeGenerator {
         val baseColorHex: String,
         val alpha: Int,
         val fiberColorHex: String,
-        val hasGlossHighlight: Boolean = false
+        val hasGlossHighlight: Boolean = false,
+        val isGingham: Boolean = false
     ) {
         KRAFT(
             baseColorHex = "#C89E6C",
@@ -37,6 +38,17 @@ object TapeGenerator {
             baseColorHex = "#F0B4BE",
             alpha = 200,
             fiberColorHex = "#D08593"
+        ),
+        SAGE_GREEN(
+            baseColorHex = "#8DA38B",
+            alpha = 215,
+            fiberColorHex = "#5E725D"
+        ),
+        GINGHAM_PINK(
+            baseColorHex = "#F7CCD5",
+            alpha = 220,
+            fiberColorHex = "#E08B9B",
+            isGingham = true
         ),
         TRANSPARENT(
             baseColorHex = "#F5F7FA",
@@ -213,16 +225,41 @@ object TapeGenerator {
             strokeWidth = 1f
         }
 
-        // Diagonal translucent washi grain lines
-        val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            alpha = 25
-            strokeWidth = 1.2f
-        }
-        var curX = left - 20f
-        while (curX < right + 30f) {
-            canvas.drawLine(curX, top, curX + 18f, bottom, linePaint)
-            curX += 8f
+        if (style.isGingham) {
+            val checkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = fiberColor
+                alpha = 65
+                this.style = Paint.Style.FILL
+            }
+            val checkSize = 10f
+            var gx = left
+            var row = 0
+            var gy = top
+            while (gy < bottom) {
+                gx = left
+                var col = 0
+                while (gx < right) {
+                    if ((row + col) % 2 == 0) {
+                        canvas.drawRect(gx, gy, gx + checkSize, gy + checkSize, checkPaint)
+                    }
+                    gx += checkSize
+                    col++
+                }
+                gy += checkSize
+                row++
+            }
+        } else {
+            // Diagonal translucent washi grain lines
+            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                alpha = 25
+                strokeWidth = 1.2f
+            }
+            var curX = left - 20f
+            while (curX < right + 30f) {
+                canvas.drawLine(curX, top, curX + 18f, bottom, linePaint)
+                curX += 8f
+            }
         }
 
         // Subtle randomized fiber specks
