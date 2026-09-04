@@ -82,8 +82,8 @@ class VideoProcessor(private val context: Context) {
                 val frameBitmap = frameExtractor.getFrameAt(
                     retriever = retriever,
                     timestampMs = timestampMs,
-                    targetWidth = 540,
-                    targetHeight = 960
+                    maxDimension = 960,
+                    rotation = metadata.rotation
                 ) ?: continue
 
                 // 1. Run ML Kit detection on each frame -> get list of faces
@@ -213,7 +213,11 @@ class VideoProcessor(private val context: Context) {
 
                 val bestDetection = cluster.representativeDetection
 
-                val fullFrame = frameExtractor.getFrameAt(retriever, bestDetection.frameTimestampMs)
+                val fullFrame = frameExtractor.getFrameAt(
+                    retriever = retriever,
+                    timestampMs = bestDetection.frameTimestampMs,
+                    rotation = metadata.rotation
+                )
                 val portraitCrop = fullFrame?.let {
                     extractGenerousPortraitCrop(
                         fullFrame = it,
@@ -282,13 +286,22 @@ class VideoProcessor(private val context: Context) {
         val faceHeight = faceBox.height() * scaleY
 
         val faceDimension = maxOf(faceWidth, faceHeight)
-        // Focused 1.38x headshot width for aesthetic portrait framing (never captures adjacent persons)
-        val cropWidth = (faceDimension * 1.38f).coerceIn(100f, fullFrame.width.toFloat())
-        val cropHeight = (cropWidth * 1.33f).coerceIn(130f, fullFrame.height.toFloat())
+        val maxAvailableH = fullFrame.height.toFloat()
+        val maxAvailableW = fullFrame.width.toFloat()
 
-        val left = (centerX - (cropWidth / 2f)).toInt().coerceIn(0, fullFrame.width - cropWidth.toInt())
-        val top = (centerY - (cropHeight * 0.40f)).toInt().coerceIn(0, fullFrame.height - cropHeight.toInt())
+        var cropHeight = (faceDimension * 1.80f).coerceIn(120f, maxAvailableH)
+        var cropWidth = (cropHeight * 0.75f).coerceIn(100f, maxAvailableW)
 
-        return Bitmap.createBitmap(fullFrame, left, top, cropWidth.toInt(), cropHeight.toInt())
+        if (cropWidth > maxAvailableW) {
+            cropWidth = maxAvailableW
+            cropHeight = (cropWidth * 1.33f).coerceIn(120f, maxAvailableH)
+        }
+
+        val left = (centerX - (cropWidth / 2f)).toInt().coerceIn(0, maxOf(0, fullFrame.width - cropWidth.toInt()))
+        val top = (centerY - (cropHeight * 0.40f)).toInt().coerceIn(0, maxOf(0, fullFrame.height - cropHeight.toInt()))
+        val finalW = cropWidth.toInt().coerceIn(1, fullFrame.width - left)
+        val finalH = cropHeight.toInt().coerceIn(1, fullFrame.height - top)
+
+        return Bitmap.createBitmap(fullFrame, left, top, finalW, finalH)
     }
 }

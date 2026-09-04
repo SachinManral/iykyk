@@ -17,7 +17,13 @@ class VideoFrameExtractor(private val context: Context) {
         val width: Int,
         val height: Int,
         val rotation: Int
-    )
+    ) {
+        val displayWidth: Int
+            get() = if (rotation == 90 || rotation == 270) height else width
+
+        val displayHeight: Int
+            get() = if (rotation == 90 || rotation == 270) width else height
+    }
 
     /**
      * Reads essential video metadata.
@@ -44,9 +50,8 @@ class VideoFrameExtractor(private val context: Context) {
 
     /**
      * Generates a list of target timestamps in milliseconds based on adaptive sampling.
-     * Starts with a baseline sampling interval (e.g. 250ms = 4 fps).
      */
-    fun generateSamplingTimestamps(durationMs: Long, baseIntervalMs: Long = 250L): List<Long> {
+    fun generateSamplingTimestamps(durationMs: Long, baseIntervalMs: Long = 200L): List<Long> {
         val timestamps = mutableListOf<Long>()
         var current = 0L
         while (current < durationMs) {
@@ -60,25 +65,51 @@ class VideoFrameExtractor(private val context: Context) {
     }
 
     /**
-     * Extracts a frame bitmap at a specific timestamp in milliseconds.
+     * Extracts a frame bitmap at a specific timestamp in milliseconds,
+     * ensuring proper orientation and proportional scaling.
      */
     suspend fun getFrameAt(
         retriever: MediaMetadataRetriever,
         timestampMs: Long,
-        targetWidth: Int = -1,
-        targetHeight: Int = -1
+        maxDimension: Int = -1,
+        rotation: Int = 0
     ): Bitmap? = withContext(Dispatchers.IO) {
         val timeUs = timestampMs * 1000L
-        val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        var frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
             ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            ?: return@withContext null
 
-        if (frame != null && targetWidth > 0 && targetHeight > 0) {
-            if (frame.width != targetWidth || frame.height != targetHeight) {
-                val scaled = Bitmap.createScaledBitmap(frame, targetWidth, targetHeight, true)
-                if (scaled != frame) {
-                    frame.recycle()
+        // If video container has rotation metadata (e.g. 90/270 for phone portrait videos)
+        // check if retriever returned raw unrotated sensor buffer and rotate if needed
+        if (rotation != 0) {
+            val needsRotate = when (rotation) {
+                90, 270 -> {
+                    // If video was recorded portrait (rotation 90/270) but frame is wider than tall, it's raw landscape
+                    frame.width > frame.height
                 }
-                return@withContext scaled
+                180 -> true
+                else -> false
+            }
+
+            if (needsRotate) {
+                val matrix = android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }
+                val rotated = Bitmap.createBitmap(frame, 0, 0, frame.width, frame.height, matrix, true)
+                if (rotated != frame) {
+                    frame.recycle()
+                    frame = rotated
+                }
+            }
+        }
+
+        // Maintain exact aspect ratio when scaling down for inference
+        if (maxDimension > 0 && (frame.width > maxDimension || frame.height > maxDimension)) {
+            val scale = maxDimension.toFloat() / maxOf(frame.width, frame.height).toFloat()
+            val targetW = (frame.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (frame.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(frame, targetW, targetH, true)
+            if (scaled != frame) {
+                frame.recycle()
+                frame = scaled
             }
         }
         frame

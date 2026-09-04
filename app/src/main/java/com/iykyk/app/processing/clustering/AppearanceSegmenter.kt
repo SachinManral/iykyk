@@ -64,7 +64,6 @@ class AppearanceSegmenter(
                     if (gap > maxContinuityGapMs) continue
 
                     val spatialDist = computeBoundingBoxDistance(lastFace.boundingBox, face.boundingBox)
-                    if (spatialDist > 0.45f) continue
 
                     // If both detections have ArcFace embeddings, ensure they belong to the same person
                     val embDist = if (lastFace.embedding != null && face.embedding != null &&
@@ -74,10 +73,14 @@ class AppearanceSegmenter(
                         0f
                     }
 
-                    // Reject tracking jump across shot cuts or person swaps
-                    if (embDist > 0.42f) continue
+                    // Must be a plausible spatial match OR strong embedding match
+                    val isSpatialMatch = spatialDist <= 0.60f
+                    val isEmbeddingMatch = embDist <= 0.38f
 
-                    val combinedScore = spatialDist + (embDist * 0.5f)
+                    if (!isSpatialMatch && !isEmbeddingMatch) continue
+                    if (embDist > 0.46f) continue // definitely different person
+
+                    val combinedScore = spatialDist * 0.5f + embDist * 0.5f
                     if (combinedScore < bestScore) {
                         bestScore = combinedScore
                         bestTrack = track

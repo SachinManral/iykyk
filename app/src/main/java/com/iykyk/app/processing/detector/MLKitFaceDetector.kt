@@ -62,28 +62,31 @@ class MLKitFaceDetector : AutoCloseable {
         val width = rect.width()
         val height = rect.height()
 
-        if (width < 45f || height < 45f) {
+        if (width < 35f || height < 35f) {
             return null
         }
 
-        // Geometric aspect ratio validation (filters dual-face collisions or artifacts)
+        // Geometric aspect ratio validation (filters dual-face collisions or non-face artifacts)
         val aspect = width / height
-        if (aspect < 0.55f || aspect > 1.45f) {
+        if (aspect < 0.45f || aspect > 1.65f) {
             return null
         }
 
         val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position?.let { PointF(it.x, it.y) }
         val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.let { PointF(it.x, it.y) }
 
-        // Must have both eyes detected for ArcFace alignment
+        // Must have both eyes detected for ArcFace canonical alignment
         if (leftEye == null || rightEye == null) {
             return null
         }
 
-        // Validate eye span and horizontal orientation
-        val eyeDistance = kotlin.math.abs(leftEye.x - rightEye.x)
-        val eyeVerticalDiff = kotlin.math.abs(leftEye.y - rightEye.y)
-        if (eyeDistance < width * 0.15f || eyeDistance > width * 0.85f || eyeVerticalDiff > height * 0.40f) {
+        // Validate eye span using Euclidean distance (handles head tilt and rotations naturally)
+        val eyeDistance = kotlin.math.hypot(
+            (leftEye.x - rightEye.x).toDouble(),
+            (leftEye.y - rightEye.y).toDouble()
+        ).toFloat()
+
+        if (eyeDistance < width * 0.12f || eyeDistance > width * 0.95f) {
             return null
         }
 
