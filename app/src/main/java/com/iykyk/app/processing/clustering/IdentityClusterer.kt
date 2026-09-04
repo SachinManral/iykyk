@@ -11,7 +11,7 @@ import kotlin.math.sqrt
  * and Co-Occurrence Conflict Constraints for ArcFace 512-D embeddings.
  */
 class IdentityClusterer(
-    private val distanceThreshold: Float = 0.44f
+    private val distanceThreshold: Float = 0.55f
 ) {
 
     data class PersonCluster(
@@ -85,7 +85,10 @@ class IdentityClusterer(
         return nodes.mapIndexed { index, node ->
             val allDetections = node.tracks.flatMap { it.detections }.sortedBy { it.frameTimestampMs }
             val segments = node.tracks.mapNotNull { it.appearanceSegment }.sortedBy { it.startTimeMs }
-            val bestDetection = allDetections.maxByOrNull { it.qualityScore } ?: allDetections.first()
+            val soloDetections = allDetections.filter { it.isSoloFrame }
+            val bestDetection = soloDetections.maxByOrNull { it.qualityScore }
+                ?: allDetections.maxByOrNull { it.qualityScore }
+                ?: allDetections.first()
 
             PersonCluster(
                 clusterId = index + 1,
@@ -137,7 +140,8 @@ class IdentityClusterer(
             for (t2 in n2.tracks) {
                 for (d1 in t1.detections) {
                     for (d2 in t2.detections) {
-                        if (abs(d1.frameTimestampMs - d2.frameTimestampMs) <= 200L) {
+                        // Two faces co-occur only if detected in the EXACT same video frame
+                        if (d1.frameTimestampMs == d2.frameTimestampMs) {
                             return true
                         }
                     }

@@ -25,5 +25,6 @@ data class DetectedFaceInfo(
     val frameWidth: Int = 0,
     val frameHeight: Int = 0,
     val embedding: FloatArray? = null,
+    val isSoloFrame: Boolean = true,
     var qualityScore: Float = 0f
 )

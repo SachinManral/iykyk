@@ -122,6 +122,7 @@ class VideoProcessor(private val context: Context) {
                     val qualityScore = ShotRanker.computeSingleQualityScore(face, isSoloFrame = isSolo)
                     val completeFace = face.copy(
                         embedding = embedding,
+                        isSoloFrame = isSolo,
                         qualityScore = qualityScore
                     )
                     allDetections.add(completeFace)
@@ -188,7 +189,7 @@ class VideoProcessor(private val context: Context) {
                 ) to null
             )
 
-            val clusterer = IdentityClusterer(distanceThreshold = 0.40f)
+            val clusterer = IdentityClusterer(distanceThreshold = 0.55f)
             val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
 
             // 7. Select best representative moments and compose person identities
@@ -287,9 +288,9 @@ class VideoProcessor(private val context: Context) {
         val faceHeight = faceBox.height() * scaleY
 
         val faceDimension = maxOf(faceWidth, faceHeight)
-        val expansionFactor = if (otherFaces.isEmpty()) 2.0f else 1.6f
-        var cropWidth = (faceDimension * expansionFactor).coerceIn(120f, fullFrame.width.toFloat())
-        var cropHeight = (cropWidth * 1.33f).coerceIn(160f, fullFrame.height.toFloat())
+        val expansionFactor = if (otherFaces.isEmpty()) 1.9f else 1.5f
+        val cropWidth = (faceDimension * expansionFactor).coerceIn(120f, fullFrame.width.toFloat())
+        val cropHeight = (cropWidth * 1.33f).coerceIn(160f, fullFrame.height.toFloat())
 
         var left = centerX - (cropWidth / 2f)
         var right = left + cropWidth
@@ -305,16 +306,16 @@ class VideoProcessor(private val context: Context) {
 
             // If other face is to the right
             if (otherCenterX > centerX) {
-                val boundary = minOf(otherLeft - 10f, (centerX + otherCenterX) / 2f)
-                if (right > boundary) {
-                    right = maxOf(faceBox.right * scaleX + 15f, boundary)
+                val maxAllowedRight = minOf(otherLeft - 10f, (centerX + otherCenterX) / 2f)
+                if (right > maxAllowedRight) {
+                    right = maxAllowedRight.coerceAtLeast(faceBox.right * scaleX + 8f)
                 }
             }
             // If other face is to the left
             if (otherCenterX < centerX) {
-                val boundary = maxOf(otherRight + 10f, (centerX + otherCenterX) / 2f)
-                if (left < boundary) {
-                    left = minOf(faceBox.left * scaleX - 15f, boundary)
+                val minAllowedLeft = maxOf(otherRight + 10f, (centerX + otherCenterX) / 2f)
+                if (left < minAllowedLeft) {
+                    left = minAllowedLeft.coerceAtMost(faceBox.left * scaleX - 8f)
                 }
             }
         }
