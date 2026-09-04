@@ -15,8 +15,9 @@ enum class PipelineStage(val title: String) {
 data class PipelineProgress(
     val stage: PipelineStage = PipelineStage.READING_VIDEO,
     val progressPercent: Int = 0,
-    val statusMessage: String = "Starting video analysis...",
+    val statusMessage: String = "Reading video...",
     val detectedFacesCount: Int = 0,
     val discoveredPeopleCount: Int = 0,
-    val discoveredAvatars: List<Bitmap> = emptyList()
+    val discoveredAvatars: List<Bitmap> = emptyList(),
+    val stageDurationsSeconds: Map<PipelineStage, Int> = emptyMap()
 )

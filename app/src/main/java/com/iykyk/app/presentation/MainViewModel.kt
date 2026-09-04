@@ -245,6 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val finalAnalysis = analysisResult
             if (finalAnalysis != null) {
+                val composeStartTime = System.currentTimeMillis()
                 _pipelineProgress.value = _pipelineProgress.value.copy(
                     stage = PipelineStage.COMPOSING_COLLAGE,
                     progressPercent = 95,
@@ -267,6 +268,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     logoBitmap = logoBitmap
                 )
 
+                val composeSecs = ((System.currentTimeMillis() - composeStartTime) / 1000).toInt().coerceAtLeast(1)
+                val updatedDurations = _pipelineProgress.value.stageDurationsSeconds.toMutableMap()
+                updatedDurations[PipelineStage.COMPOSING_COLLAGE] = composeSecs
+
                 val result = CollageResult(
                     videoUri = finalAnalysis.videoUri,
                     videoTitle = finalAnalysis.videoTitle,
@@ -288,7 +293,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _pipelineProgress.value = _pipelineProgress.value.copy(
                     stage = PipelineStage.COMPLETED,
                     progressPercent = 100,
-                    statusMessage = "Done! Your collage is ready."
+                    statusMessage = "Done! Your collage is ready.",
+                    stageDurationsSeconds = updatedDurations
                 )
 
                 onComplete()

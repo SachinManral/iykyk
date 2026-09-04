@@ -40,11 +40,15 @@ class VideoProcessor(private val context: Context) {
         videoUri: Uri,
         videoTitle: String = "Selected Video"
     ): Flow<Pair<PipelineProgress, AnalysisResult?>> = flow {
+        val stageDurations = mutableMapOf<PipelineStage, Int>()
+        var stageStartTime = System.currentTimeMillis()
+
         emit(
             PipelineProgress(
                 stage = PipelineStage.READING_VIDEO,
                 progressPercent = 5,
-                statusMessage = "Reading video metadata..."
+                statusMessage = "Reading video metadata...",
+                stageDurationsSeconds = stageDurations.toMap()
             ) to null
         )
 
@@ -57,16 +61,22 @@ class VideoProcessor(private val context: Context) {
             baseIntervalMs = 333L
         )
 
+        val readSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+        stageDurations[PipelineStage.READING_VIDEO] = readSecs
+        stageStartTime = System.currentTimeMillis()
+
         emit(
             PipelineProgress(
                 stage = PipelineStage.DETECTING_FACES,
                 progressPercent = 15,
-                statusMessage = "Detecting faces across ${sampleTimestamps.size} frames..."
+                statusMessage = "Detecting faces in video...",
+                stageDurationsSeconds = stageDurations.toMap()
             ) to null
         )
 
         val allDetections = mutableListOf<DetectedFaceInfo>()
         val discoveredAvatars = mutableListOf<Bitmap>()
+        val discoveredEmbeddings = mutableListOf<FloatArray>()
 
         val retriever = MediaMetadataRetriever()
         retriever.setDataSource(context, videoUri)
@@ -111,10 +121,6 @@ class VideoProcessor(private val context: Context) {
                     val embedding = try {
                         faceEmbedder.extractEmbedding(alignedFace)
                     } finally {
-                        if (discoveredAvatars.size < 6) {
-                            val avatarCopy = Bitmap.createScaledBitmap(alignedFace, 96, 96, true)
-                            discoveredAvatars.add(avatarCopy)
-                        }
                         alignedFace.recycle()
                     }
 
@@ -130,31 +136,54 @@ class VideoProcessor(private val context: Context) {
                         qualityScore = qualityScore
                     )
                     allDetections.add(completeFace)
+
+                    // 5. Distinct avatar collection: only add clean, distinct faces (not 5 identical shots)
+                    if (discoveredAvatars.size < 5 && face.sharpnessScore > 8f) {
+                        val isDistinct = discoveredEmbeddings.none { existing ->
+                            computeCosineSimilarity(existing, embedding) > 0.65f
+                        }
+                        if (isDistinct || discoveredAvatars.isEmpty()) {
+                            val cleanAvatar = extractSquareAvatarCrop(frameBitmap, face)
+                            if (cleanAvatar != null) {
+                                discoveredAvatars.add(cleanAvatar)
+                                discoveredEmbeddings.add(embedding)
+                            }
+                        }
+                    }
                 }
                 frameBitmap.recycle()
 
                 if (index % 4 == 0 || index == totalFrames - 1) {
                     val progress = 15 + ((index.toFloat() / totalFrames) * 35f).toInt()
+                    val liveDetectSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+                    val liveMap = stageDurations.toMutableMap()
+                    liveMap[PipelineStage.DETECTING_FACES] = liveDetectSecs
                     emit(
                         PipelineProgress(
                             stage = PipelineStage.DETECTING_FACES,
                             progressPercent = progress.coerceIn(15, 50),
-                            statusMessage = "Found ${allDetections.size} usable faces...",
+                            statusMessage = "Detecting faces in video...",
                             detectedFacesCount = allDetections.size,
-                            discoveredAvatars = discoveredAvatars.toList()
+                            discoveredAvatars = discoveredAvatars.toList(),
+                            stageDurationsSeconds = liveMap
                         ) to null
                     )
                 }
             }
 
-            // 5. Build continuous appearance segments via frame-to-frame box tracking & keyframe selection
+            val detectSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+            stageDurations[PipelineStage.DETECTING_FACES] = detectSecs
+            stageStartTime = System.currentTimeMillis()
+
+            // 5. Grouping identities
             emit(
                 PipelineProgress(
-                    stage = PipelineStage.COUNTING_APPEARANCES,
+                    stage = PipelineStage.GROUPING_IDENTITIES,
                     progressPercent = 55,
-                    statusMessage = "Tracking continuous appearances...",
+                    statusMessage = "Grouping identities...",
                     detectedFacesCount = allDetections.size,
-                    discoveredAvatars = discoveredAvatars.toList()
+                    discoveredAvatars = discoveredAvatars.toList(),
+                    stageDurationsSeconds = stageDurations.toMap()
                 ) to null
             )
 
@@ -164,34 +193,28 @@ class VideoProcessor(private val context: Context) {
             )
             val appearanceTracks = segmenter.buildAppearanceTracks(allDetections)
 
-            // 6. Global agglomerative clustering on pooled segment keyframe embeddings
-            emit(
-                PipelineProgress(
-                    stage = PipelineStage.GROUPING_IDENTITIES,
-                    progressPercent = 70,
-                    statusMessage = "Grouping unique individuals with ArcFace...",
-                    detectedFacesCount = allDetections.size,
-                    discoveredPeopleCount = appearanceTracks.size,
-                    discoveredAvatars = discoveredAvatars.toList()
-                ) to null
-            )
-
             val clusterer = IdentityClusterer(distanceThreshold = 0.64f)
             val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
 
-            // 7. Select best representative moments and compose person identities
+            val groupSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+            stageDurations[PipelineStage.GROUPING_IDENTITIES] = groupSecs
+            stageStartTime = System.currentTimeMillis()
+
+            // 6. Counting appearances
             emit(
                 PipelineProgress(
-                    stage = PipelineStage.CHOOSING_BEST_MOMENTS,
-                    progressPercent = 85,
-                    statusMessage = "Selecting best representative moments...",
+                    stage = PipelineStage.COUNTING_APPEARANCES,
+                    progressPercent = 70,
+                    statusMessage = "Counting appearances...",
                     detectedFacesCount = allDetections.size,
                     discoveredPeopleCount = personClusters.size,
-                    discoveredAvatars = discoveredAvatars.toList()
+                    discoveredAvatars = discoveredAvatars.toList(),
+                    stageDurationsSeconds = stageDurations.toMap()
                 ) to null
             )
 
             val personIdentities = mutableListOf<PersonIdentity>()
+            val clusteredAvatars = mutableListOf<Bitmap>()
             var totalAppearancesCount = 0
 
             for ((clusterIdx, cluster) in personClusters.withIndex()) {
@@ -211,11 +234,13 @@ class VideoProcessor(private val context: Context) {
                         targetFace = bestDetection
                     )
                 }
-                fullFrame?.recycle()
-
-                val avatar = portraitCrop?.let {
-                    Bitmap.createScaledBitmap(it, 112, 112, true)
+                val avatar = fullFrame?.let {
+                    extractSquareAvatarCrop(it, bestDetection)
                 }
+                if (avatar != null && clusteredAvatars.size < 5) {
+                    clusteredAvatars.add(avatar)
+                }
+                fullFrame?.recycle()
 
                 val personLabel = "Person ${('A'.code + clusterIdx).toChar()}"
                 val person = PersonIdentity(
@@ -230,6 +255,28 @@ class VideoProcessor(private val context: Context) {
                 personIdentities.add(person)
             }
 
+            val finalAvatars = if (clusteredAvatars.isNotEmpty()) clusteredAvatars else discoveredAvatars
+
+            val countSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+            stageDurations[PipelineStage.COUNTING_APPEARANCES] = countSecs
+            stageStartTime = System.currentTimeMillis()
+
+            // 7. Choosing best moments
+            emit(
+                PipelineProgress(
+                    stage = PipelineStage.CHOOSING_BEST_MOMENTS,
+                    progressPercent = 85,
+                    statusMessage = "Choosing best moments...",
+                    detectedFacesCount = allDetections.size,
+                    discoveredPeopleCount = personIdentities.size,
+                    discoveredAvatars = finalAvatars.toList(),
+                    stageDurationsSeconds = stageDurations.toMap()
+                ) to null
+            )
+
+            val chooseSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
+            stageDurations[PipelineStage.CHOOSING_BEST_MOMENTS] = chooseSecs
+
             val finalResult = AnalysisResult(
                 videoUri = videoUri,
                 videoTitle = videoTitle,
@@ -241,12 +288,13 @@ class VideoProcessor(private val context: Context) {
 
             emit(
                 PipelineProgress(
-                    stage = PipelineStage.CHOOSING_BEST_MOMENTS,
-                    progressPercent = 100,
-                    statusMessage = "Found ${personIdentities.size} people across $totalAppearancesCount appearances",
+                    stage = PipelineStage.COMPOSING_COLLAGE,
+                    progressPercent = 95,
+                    statusMessage = "Composing collage...",
                     detectedFacesCount = allDetections.size,
                     discoveredPeopleCount = personIdentities.size,
-                    discoveredAvatars = discoveredAvatars.toList()
+                    discoveredAvatars = discoveredAvatars.toList(),
+                    stageDurationsSeconds = stageDurations.toMap()
                 ) to finalResult
             )
 
@@ -290,5 +338,44 @@ class VideoProcessor(private val context: Context) {
         val finalH = cropHeight.toInt().coerceIn(1, fullFrame.height - top)
 
         return Bitmap.createBitmap(fullFrame, left, top, finalW, finalH)
+    }
+
+    private fun extractSquareAvatarCrop(
+        fullFrame: Bitmap,
+        targetFace: DetectedFaceInfo
+    ): Bitmap? {
+        val sourceWidth = targetFace.frameWidth
+        val sourceHeight = targetFace.frameHeight
+        val scaleX = if (sourceWidth > 0) fullFrame.width.toFloat() / sourceWidth.toFloat() else 1f
+        val scaleY = if (sourceHeight > 0) fullFrame.height.toFloat() / sourceHeight.toFloat() else 1f
+
+        val faceBox = targetFace.boundingBox
+        val centerX = faceBox.centerX() * scaleX
+        val centerY = faceBox.centerY() * scaleY
+        val faceDimension = maxOf(faceBox.width() * scaleX, faceBox.height() * scaleY)
+
+        // 1.5x face dimension for a natural square portrait with forehead and chin
+        val cropSize = (faceDimension * 1.55f).coerceIn(80f, minOf(fullFrame.width, fullFrame.height).toFloat()).toInt()
+
+        val left = (centerX - cropSize / 2f).toInt().coerceIn(0, maxOf(0, fullFrame.width - cropSize))
+        val top = (centerY - cropSize * 0.45f).toInt().coerceIn(0, maxOf(0, fullFrame.height - cropSize))
+        val finalW = cropSize.coerceIn(1, fullFrame.width - left)
+        val finalH = cropSize.coerceIn(1, fullFrame.height - top)
+
+        val squareCrop = Bitmap.createBitmap(fullFrame, left, top, finalW, finalH)
+        val scaled = Bitmap.createScaledBitmap(squareCrop, 140, 140, true)
+        if (scaled != squareCrop) {
+            squareCrop.recycle()
+        }
+        return scaled
+    }
+
+    private fun computeCosineSimilarity(v1: FloatArray, v2: FloatArray): Float {
+        if (v1.isEmpty() || v2.isEmpty() || v1.size != v2.size) return 0f
+        var dot = 0f
+        for (i in v1.indices) {
+            dot += v1[i] * v2[i]
+        }
+        return dot
     }
 }
