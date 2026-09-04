@@ -12,7 +12,7 @@ import kotlin.math.hypot
 class AppearanceSegmenter(
     val maxContinuityGapMs: Long = 800L,
     val minSegmentDurationMs: Long = 0L,
-    val minDetectionsPerSegment: Int = 1
+    val minDetectionsPerSegment: Int = 2
 ) {
 
     data class SegmentTrack(

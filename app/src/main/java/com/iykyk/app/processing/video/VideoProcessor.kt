@@ -51,10 +51,10 @@ class VideoProcessor(private val context: Context) {
         val metadata = frameExtractor.extractMetadata(videoUri)
         val durationMs = metadata.durationMs.coerceAtLeast(1000L)
 
-        // 5 FPS sampling rate (200ms step)
+        // 3 FPS adaptive sampling rate (333ms step)
         val sampleTimestamps = frameExtractor.generateSamplingTimestamps(
             durationMs = durationMs,
-            baseIntervalMs = 200L
+            baseIntervalMs = 333L
         )
 
         emit(
@@ -82,7 +82,7 @@ class VideoProcessor(private val context: Context) {
                 val frameBitmap = frameExtractor.getFrameAt(
                     retriever = retriever,
                     timestampMs = timestampMs,
-                    maxDimension = 960,
+                    maxDimension = 640,
                     rotation = metadata.rotation
                 ) ?: continue
 
@@ -111,6 +111,10 @@ class VideoProcessor(private val context: Context) {
                     val embedding = try {
                         faceEmbedder.extractEmbedding(alignedFace)
                     } finally {
+                        if (discoveredAvatars.size < 6) {
+                            val avatarCopy = Bitmap.createScaledBitmap(alignedFace, 96, 96, true)
+                            discoveredAvatars.add(avatarCopy)
+                        }
                         alignedFace.recycle()
                     }
 
@@ -126,23 +130,6 @@ class VideoProcessor(private val context: Context) {
                         qualityScore = qualityScore
                     )
                     allDetections.add(completeFace)
-
-                    if (discoveredAvatars.size < 6) {
-                        val avatar = FaceAligner.alignFace5Points(
-                            sourceBitmap = frameBitmap,
-                            boundingBox = completeFace.boundingBox,
-                            leftEye = completeFace.leftEye,
-                            rightEye = completeFace.rightEye,
-                            noseBase = completeFace.noseBase,
-                            leftMouth = completeFace.leftMouth,
-                            rightMouth = completeFace.rightMouth
-                        )
-                        if (avatar != null) {
-                            val avatarCopy = Bitmap.createScaledBitmap(avatar, 96, 96, true)
-                            avatar.recycle()
-                            discoveredAvatars.add(avatarCopy)
-                        }
-                    }
                 }
                 frameBitmap.recycle()
 
@@ -173,7 +160,7 @@ class VideoProcessor(private val context: Context) {
 
             val segmenter = AppearanceSegmenter(
                 maxContinuityGapMs = 800L,
-                minDetectionsPerSegment = 1
+                minDetectionsPerSegment = 2
             )
             val appearanceTracks = segmenter.buildAppearanceTracks(allDetections)
 

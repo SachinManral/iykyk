@@ -99,9 +99,7 @@ class MLKitFaceDetector : AutoCloseable {
             return null
         }
 
-        val faceCrop = Bitmap.createBitmap(frameBitmap, left, top, cropW, cropH)
-        val sharpness = BlurDetector.computeLaplacianVariance(faceCrop)
-        faceCrop.recycle()
+        val sharpness = BlurDetector.computeLaplacianVarianceRegion(frameBitmap, left, top, cropW, cropH)
 
         return DetectedFaceInfo(
             frameTimestampMs = timestampMs,

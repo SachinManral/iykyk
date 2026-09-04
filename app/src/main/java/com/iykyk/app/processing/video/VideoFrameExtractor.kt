@@ -51,7 +51,7 @@ class VideoFrameExtractor(private val context: Context) {
     /**
      * Generates a list of target timestamps in milliseconds based on adaptive sampling.
      */
-    fun generateSamplingTimestamps(durationMs: Long, baseIntervalMs: Long = 200L): List<Long> {
+    fun generateSamplingTimestamps(durationMs: Long, baseIntervalMs: Long = 333L): List<Long> {
         val timestamps = mutableListOf<Long>()
         var current = 0L
         while (current < durationMs) {

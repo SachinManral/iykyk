@@ -72,34 +72,30 @@ class FaceEmbedder(
     }
 
     /**
-     * Prepares NCHW FloatBuffer normalized as (pixel - 127.5) / 128.0.
-     * InsightFace ArcFace models standard order: BGR, NCHW layout.
+     * Prepares NCHW FloatBuffer normalized as (pixel - 127.5) / 128.0 in a single fast pass.
+     * InsightFace ArcFace standard order: RGB, NCHW layout.
      */
     private fun convertBitmapToNchwBuffer(bitmap: Bitmap): FloatBuffer {
         val totalPixels = inputSize * inputSize
         val intValues = IntArray(totalPixels)
         bitmap.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize)
 
-        val floatBuffer = FloatBuffer.allocate(1 * 3 * totalPixels)
+        val floatArray = FloatArray(3 * totalPixels)
+        val offsetG = totalPixels
+        val offsetB = 2 * totalPixels
 
-        // Channels: 0 = Red, 1 = Green, 2 = Blue (Standard RGB NCHW layout for InsightFace)
-        for (c in 0 until 3) {
-            var idx = 0
-            for (h in 0 until inputSize) {
-                for (w in 0 until inputSize) {
-                    val pixel = intValues[idx++]
-                    val channelValue = when (c) {
-                        0 -> ((pixel shr 16) and 0xFF) // Red
-                        1 -> ((pixel shr 8) and 0xFF)  // Green
-                        2 -> (pixel and 0xFF)          // Blue
-                        else -> 0
-                    }
-                    floatBuffer.put((channelValue - 127.5f) / 128.0f)
-                }
-            }
+        for (i in 0 until totalPixels) {
+            val pixel = intValues[i]
+            val r = ((pixel shr 16) and 0xFF)
+            val g = ((pixel shr 8) and 0xFF)
+            val b = (pixel and 0xFF)
+
+            floatArray[i] = (r - 127.5f) / 128.0f
+            floatArray[offsetG + i] = (g - 127.5f) / 128.0f
+            floatArray[offsetB + i] = (b - 127.5f) / 128.0f
         }
-        floatBuffer.rewind()
-        return floatBuffer
+
+        return FloatBuffer.wrap(floatArray)
     }
 
     private fun l2Normalize(vector: FloatArray): FloatArray {

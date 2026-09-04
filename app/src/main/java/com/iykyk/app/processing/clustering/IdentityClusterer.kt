@@ -81,8 +81,16 @@ class IdentityClusterer(
             nodes.removeAt(bestJ)
         }
 
-        // Convert merged nodes into PersonClusters
-        return nodes.mapIndexed { index, node ->
+        // Convert merged nodes into PersonClusters, filtering out isolated noise clusters if excessive clusters exist
+        val filteredNodes = if (nodes.size > 8) {
+            val maxDetectionsInAnyCluster = nodes.maxOfOrNull { n -> n.tracks.sumOf { it.detections.size } } ?: 0
+            val minDetectionsThreshold = if (maxDetectionsInAnyCluster >= 6) 2 else 1
+            nodes.filter { n -> n.tracks.sumOf { it.detections.size } >= minDetectionsThreshold }.ifEmpty { nodes }
+        } else {
+            nodes
+        }
+
+        return filteredNodes.mapIndexed { index, node ->
             val allDetections = node.tracks.flatMap { it.detections }.sortedBy { it.frameTimestampMs }
             val segments = node.tracks.mapNotNull { it.appearanceSegment }.sortedBy { it.startTimeMs }
             val soloDetections = allDetections.filter { it.isSoloFrame }
@@ -102,7 +110,7 @@ class IdentityClusterer(
      * Backward-compatible clustering method for raw detections list.
      */
     fun clusterFaces(detections: List<DetectedFaceInfo>): List<List<DetectedFaceInfo>> {
-        val segmenter = AppearanceSegmenter()
+        val segmenter = AppearanceSegmenter(minDetectionsPerSegment = 1)
         val tracks = segmenter.buildAppearanceTracks(detections)
         val clusters = clusterSegmentTracks(tracks)
         return clusters.map { it.allDetections }
@@ -132,30 +140,40 @@ class IdentityClusterer(
         if (pairDistances.isEmpty()) return centroidDist
 
         pairDistances.sort()
-        // Trimmed average of top 60% closest pairs to discard noisy pose outlier pairs
-        val takeCount = maxOf(1, (pairDistances.size * 0.60f).toInt())
+        val minPairDist = pairDistances.first()
+        val takeCount = maxOf(1, (pairDistances.size * 0.50f).toInt())
         var sum = 0f
         for (i in 0 until takeCount) {
             sum += pairDistances[i]
         }
-        val trimmedAvgDist = sum / takeCount
+        val topAvgDist = sum / takeCount
 
-        // Combined robust metric: 50% centroid distance + 50% trimmed keyframe distance
-        return (centroidDist * 0.5f + trimmedAvgDist * 0.5f)
+        // Robust metric combining centroid, top-k average and min pair
+        return minOf(centroidDist, (topAvgDist * 0.6f + minPairDist * 0.4f))
     }
 
     private fun hasCoOccurrenceConflict(
         n1: TrackClusterNode,
         n2: TrackClusterNode
     ): Boolean {
-        for (t1 in n1.tracks) {
-            for (t2 in n2.tracks) {
-                for (d1 in t1.detections) {
-                    for (d2 in t2.detections) {
-                        // Two faces co-occur only if detected in the EXACT same video frame
-                        if (d1.frameTimestampMs == d2.frameTimestampMs) {
-                            return true
-                        }
+        val timestamps1 = HashSet<Long>()
+        for (t in n1.tracks) {
+            for (d in t.detections) {
+                timestamps1.add(d.frameTimestampMs)
+            }
+        }
+
+        var coOccurCount = 0
+        val checked = HashSet<Long>()
+        for (t in n2.tracks) {
+            for (d in t.detections) {
+                val ts = d.frameTimestampMs
+                if (timestamps1.contains(ts) && checked.add(ts)) {
+                    coOccurCount++
+                    // Genuine co-occurrence requires at least 2 distinct frame timestamps together
+                    // (prevents 1-frame transient glitches or reflections from blocking valid merges)
+                    if (coOccurCount >= 2) {
+                        return true
                     }
                 }
             }
