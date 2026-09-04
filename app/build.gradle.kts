@@ -48,7 +48,11 @@ android {
     }
 
     androidResources {
-        noCompress += "tflite"
+        noCompress += listOf("tflite", "onnx")
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -77,6 +81,7 @@ dependencies {
     implementation(libs.androidx.media3.extractor)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.play.services.mlkit.face.detection)
+    implementation(libs.onnxruntime.android)
     implementation(libs.tensorflow.lite)
     implementation(libs.tensorflow.lite.support)
 

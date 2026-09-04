@@ -12,6 +12,7 @@ tensorflowLite = "2.16.1"
 tensorflowLiteSupport = "0.4.4"
 coil = "2.7.0"
 coroutines = "1.9.0"
+onnxruntime = "1.20.0"
 junit = "4.13.2"
 
 [libraries]
@@ -39,8 +40,9 @@ androidx-media3-common = { group = "androidx.media3", name = "media3-common", ve
 androidx-media3-extractor = { group = "androidx.media3", name = "media3-extractor", version.ref = "media3" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 
-# ML Kit & TFLite
+# ML Kit & ONNX Runtime
 play-services-mlkit-face-detection = { group = "com.google.android.gms", name = "play-services-mlkit-face-detection", version.ref = "mlkitFaceDetection" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
 tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
 
