@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,16 +21,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PeopleAlt
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,8 +42,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,20 +54,17 @@ import com.iykyk.app.presentation.MainViewModel
 import com.iykyk.app.presentation.theme.AccentCyan
 import com.iykyk.app.presentation.theme.BackgroundGradient
 import com.iykyk.app.presentation.theme.BgDark
+import com.iykyk.app.presentation.theme.PrimaryGradient
 import com.iykyk.app.presentation.theme.PrimaryPink
 import com.iykyk.app.presentation.theme.PrimaryPurple
 import com.iykyk.app.presentation.theme.SuccessGreen
 import com.iykyk.app.presentation.theme.SurfaceCard
 import com.iykyk.app.presentation.theme.SurfaceDark
 import com.iykyk.app.presentation.theme.SurfaceDarkStroke
-import com.iykyk.app.presentation.theme.SurfaceElevated
 import com.iykyk.app.presentation.theme.TextMuted
 import com.iykyk.app.presentation.theme.TextPrimary
 import com.iykyk.app.presentation.theme.TextSecondary
 import kotlinx.coroutines.delay
-
-import com.iykyk.app.graphics.CollageTheme
-import com.iykyk.app.presentation.theme.PrimaryGradient
 
 @Composable
 fun CollageResultScreen(
@@ -74,7 +76,6 @@ fun CollageResultScreen(
 ) {
     val context = LocalContext.current
     val currentCollage by viewModel.currentCollage.collectAsState()
-    val activeTheme by viewModel.selectedCollageTheme.collectAsState()
     val isSaving by viewModel.isSavingToGallery.collectAsState()
     val toastMessage by viewModel.saveToastMessage.collectAsState()
 
@@ -86,7 +87,62 @@ fun CollageResultScreen(
     }
 
     Scaffold(
-        containerColor = BgDark
+        containerColor = BgDark,
+        bottomBar = {
+            // Docked Bottom Action Bar with glass finish
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(Color(0x33FFFFFF), Color.Transparent)
+                        ),
+                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                    ),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                color = SurfaceDark.copy(alpha = 0.95f),
+                shadowElevation = 16.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Save to Gallery Action
+                    ResultActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.FileDownload,
+                        label = "Save",
+                        accentColor = AccentCyan,
+                        isLoading = isSaving,
+                        enabled = !isSaving,
+                        onClick = { viewModel.saveCurrentCollageToGallery(context) }
+                    )
+
+                    // Share Action
+                    ResultActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.Share,
+                        label = "Share",
+                        accentColor = PrimaryPink,
+                        onClick = onShareClick
+                    )
+
+                    // View People Action
+                    ResultActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.PeopleAlt,
+                        label = "People",
+                        accentColor = PrimaryPurple,
+                        onClick = onViewPeopleClick
+                    )
+                }
+            }
+        }
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -100,40 +156,58 @@ fun CollageResultScreen(
                     .padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header
+                // Top Navigation Bar
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp),
+                            .padding(top = 10.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onBackClick) {
+                        IconButton(
+                            onClick = onBackClick,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(SurfaceDark.copy(alpha = 0.7f))
+                                .border(1.dp, SurfaceDarkStroke, CircleShape)
+                        ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                                 contentDescription = "Back",
-                                tint = TextPrimary
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
+
                         Text(
                             text = "Your Collage",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
-                        IconButton(onClick = onHomeClick) {
+
+                        IconButton(
+                            onClick = onHomeClick,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(SurfaceDark.copy(alpha = 0.7f))
+                                .border(1.dp, SurfaceDarkStroke, CircleShape)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Home,
+                                imageVector = Icons.Outlined.Home,
                                 contentDescription = "Home",
-                                tint = TextPrimary
+                                tint = TextPrimary,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 
-                // Celebratory Headline matching Sample UI
+                // Celebratory Headline
                 item {
                     val peopleCount = currentCollage?.people?.size ?: 0
                     val appearancesCount = currentCollage?.totalAppearances ?: 0
@@ -146,37 +220,55 @@ fun CollageResultScreen(
                             color = TextPrimary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "$peopleCount people · $appearancesCount appearances",
-                            fontSize = 14.sp,
-                            color = AccentCyan,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(AccentCyan.copy(alpha = 0.12f))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "$peopleCount people · $appearancesCount appearances",
+                                fontSize = 13.sp,
+                                color = AccentCyan,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                 }
 
-                // Aesthetic Dynamic Template & Remix Bar
+                // Dynamic Template & Remix Bar
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(18.dp))
                             .background(SurfaceDark.copy(alpha = 0.85f))
-                            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(16.dp))
+                            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(18.dp))
                             .clickable {
                                 viewModel.remixCollageStyle()
                             }
-                            .padding(vertical = 10.dp, horizontal = 14.dp),
+                            .padding(vertical = 11.dp, horizontal = 14.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "✨",
-                                fontSize = 16.sp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x22FFFFFF)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
                                     text = "Auto-Designed Template",
@@ -208,40 +300,7 @@ fun CollageResultScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(18.dp))
-                }
-
-                // Collage Canvas Image View Frame
-                item {
-                    val collageBitmap = currentCollage?.collageBitmap
-                    if (collageBitmap != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .aspectRatio(9f / 16f)
-                                .shadow(28.dp, RoundedCornerShape(24.dp), ambientColor = PrimaryPurple, spotColor = PrimaryPink)
-                                .clip(RoundedCornerShape(24.dp))
-                                .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
-                        ) {
-                            Image(
-                                bitmap = collageBitmap.asImageBitmap(),
-                                contentDescription = "Rendered Collage",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .aspectRatio(9f / 16f)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(SurfaceDark),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = PrimaryPink)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
 
                 // Toast Feedback banner if saved
@@ -250,9 +309,9 @@ fun CollageResultScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(Color(0xFF064E3B))
-                                .border(1.dp, SuccessGreen.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                .border(1.dp, SuccessGreen.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                                 .padding(12.dp)
                         ) {
                             Row(
@@ -275,129 +334,105 @@ fun CollageResultScreen(
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                     }
                 }
 
-                // Bottom Action Buttons: Save to Gallery, Share, View People
+                // Collage Canvas Image View Frame
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Save to Gallery
+                    val collageBitmap = currentCollage?.collageBitmap
+                    if (collageBitmap != null) {
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(88.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(SurfaceCard)
-                                .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(20.dp))
-                                .clickable(enabled = !isSaving) {
-                                    viewModel.saveCurrentCollageToGallery(context)
-                                }
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                if (isSaving) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        color = PrimaryPink,
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = null,
-                                        tint = AccentCyan,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Save to Gallery",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextPrimary
+                                .fillMaxWidth(0.92f)
+                                .aspectRatio(9f / 16f)
+                                .shadow(
+                                    24.dp,
+                                    RoundedCornerShape(22.dp),
+                                    ambientColor = PrimaryPurple,
+                                    spotColor = PrimaryPink
                                 )
-                            }
+                                .clip(RoundedCornerShape(22.dp))
+                                .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
+                        ) {
+                            Image(
+                                bitmap = collageBitmap.asImageBitmap(),
+                                contentDescription = "Rendered Collage",
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
-
-                        // Share
+                    } else {
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(88.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(SurfaceCard)
-                                .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(20.dp))
-                                .clickable {
-                                    onShareClick()
-                                }
-                                .padding(12.dp),
+                                .fillMaxWidth(0.92f)
+                                .aspectRatio(9f / 16f)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(SurfaceDark),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = null,
-                                    tint = PrimaryPink,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "Share",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextPrimary
-                                )
-                            }
-                        }
-
-                        // View People
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(88.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(SurfaceCard)
-                                .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(20.dp))
-                                .clickable {
-                                    onViewPeopleClick()
-                                }
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Group,
-                                    contentDescription = null,
-                                    tint = PrimaryPurple,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "View People",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextPrimary
-                                )
-                            }
+                            CircularProgressIndicator(color = PrimaryPink)
                         }
                     }
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResultActionButton(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    label: String,
+    accentColor: Color,
+    isLoading: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(68.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(SurfaceCard)
+            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp, horizontal = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = accentColor,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = accentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
         }
     }
 }
