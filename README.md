@@ -34,23 +34,25 @@ The pipeline processes video frames off the main thread using Kotlin Coroutines 
 ```
 Video Input
   │
-  ▼ [Adaptive Frame Sampling] (5 FPS / 200ms)
+  ▼ [Adaptive Frame Sampling] (5 FPS / 200ms off main thread)
   │
   ▼ [ML Kit Face Detection] (5 facial landmarks, Euler angles, eye/smile probabilities, tracking IDs)
   │
   ▼ [Face-Level Laplacian Variance Quality Gate] (Rejects blurred face crops; preserves usable faces)
   │
-  ▼ [Canonical Affine Face Alignment] (2D eye-line normalization to 112x112 canonical space)
+  ▼ [5-Point Similarity Face Alignment] (Umeyama least-squares mapping to canonical 112x112 space)
   │
-  ▼ [On-Device Face Embeddings] (MobileFaceNet TFLite -> 128D/192D L2-normalized unit vector)
+  ▼ [On-Device ArcFace Embeddings] (InsightFace MobileFaceNet w600k_mbf.onnx -> 512D L2-normalized unit vector)
   │
-  ▼ [Tracklet-Based Identity Clustering] (Temporal tracklets + Average Linkage + Co-occurrence exclusion)
+  ▼ [Spatial Tracklet Appearance Tracking] (Continuous frame-to-frame box/IoU overlap grouping)
   │
-  ▼ [Continuous Appearance Segmentation] (600ms gap thresholding: continuous segment = 1 appearance)
+  ▼ [Keyframe Subsampling] (Top 3-5 best-quality frames per appearance segment)
+  │
+  ▼ [Global Agglomerative Clustering] (Average Linkage on pooled keyframes + Co-occurrence exclusion)
   │
   ▼ [Multi-Factor Shot Scoring] (Frontality + Sharpness + Eyes Open + Smile + Framing)
   │
-  ▼ [Generous High-Res Portrait Cropping] (2.4x expansion from full source frames)
+  ▼ [Generous High-Res Portrait Cropping] (2.4x expansion from full 1080x1920 source frames)
   │
   ▼ [Dynamic Collage Canvas Engine] (Instagram Story polaroid composition)
 ```
@@ -59,37 +61,44 @@ Video Input
 
 ## 🔬 Model & Algorithm Specifications
 
-### 1. Face Detection & Landmark Alignment
+### 1. Face Detection & 5-Point Landmark Alignment
 * **Detector**: Google ML Kit Face Detection (`PERFORMANCE_MODE_ACCURATE`, `LANDMARK_MODE_ALL`, `CLASSIFICATION_MODE_ALL`, `enableTracking()`, `minFaceSize = 0.05f`).
-* **Alignment**: Affine transformation matrix maps detected left and right eye coordinates to canonical fixed positions $(0.38 \cdot \text{size}, 0.40 \cdot \text{size})$ and $(0.62 \cdot \text{size}, 0.40 \cdot \text{size})$ in a $112 \times 112$ image space. Distorted or unaligned crops are rejected to protect embedding quality.
+* **5-Point Alignment**: Computes a 2D similarity transformation (Umeyama least-squares) mapping detected landmarks (left eye, right eye, nose base, left mouth corner, right mouth corner) to standard ArcFace canonical anchor points:
+  - Left Eye: $(38.2946, 51.6963)$
+  - Right Eye: $(73.5318, 51.5014)$
+  - Nose Base: $(56.0252, 71.7366)$
+  - Left Mouth: $(41.5493, 92.3655)$
+  - Right Mouth: $(70.7266, 92.2041)$
+* **Result**: Rotation-invariant, scale-normalized $112 \times 112$ canonical RGB crops that maximize ArcFace embedding fidelity.
 
 ### 2. Face Embedding Model
-* **Model**: **MobileFaceNet** (`mobile_face_net.tflite`, packaged in `app/src/main/assets/`).
-* **Input**: $112 \times 112 \times 3$ RGB bitmap normalized to $[-1.0, 1.0]$:
+* **Model**: **MobileFaceNet-ArcFace ONNX** (`w600k_mbf.onnx`, packaged in `app/src/main/assets/`).
+* **Runtime**: `com.microsoft.onnxruntime:onnxruntime-android`.
+* **Input**: $1 \times 3 \times 112 \times 112$ NCHW Float32 tensor normalized to $[-1.0, 1.0]$:
   $$\text{pixel}_{\text{norm}} = \frac{\text{pixel} - 127.5}{128.0}$$
-* **Output**: Unit-normalized embedding vector on the hypersphere ($L_2$ norm $= 1.0$).
+* **Output**: 512-dimensional unit-normalized embedding vector on the hypersphere ($L_2$ norm $= 1.0$).
 
-### 3. Tracklet-Based Identity Clustering & Co-Occurrence
-* **Clustering Unit**: Detections are first aggregated into continuous temporal **tracklets** ($\Delta t \le 600\text{ms}$) with normalized centroid embeddings.
+### 3. Appearance Segmentation & Keyframe Pooling
+* **Frame-to-Frame Spatial Tracking**: Consecutive frame detections are associated using spatial proximity (center distance and bounding-box IoU) and temporal continuity ($\Delta t \le 600\text{ms}$).
+* **Keyframe Subsampling**: To avoid noisy frames degrading clustering accuracy, only the top **3–5 highest quality-scored frames** from each continuous segment are retained and pooled for global clustering.
+
+### 4. Global Agglomerative Clustering & Co-Occurrence Exclusion
+* **Clustering Strategy**: Global (order-independent) Agglomerative Hierarchical Clustering with **Average Linkage** on pooled segment keyframe embeddings.
 * **Metric**: Pairwise Cosine Distance:
   $$D(\mathbf{u}, \mathbf{v}) = 1 - (\mathbf{u} \cdot \mathbf{v})$$
-* **Calibrated Threshold**: **$0.22$** with **Average Linkage**.
-* **Co-Occurrence Conflict Constraint**: If any two tracklets overlap in time ($\Delta t \le 250\text{ms}$), they are strictly prohibited from merging into the same identity. This guarantees that distinct people sharing the same shot (e.g. Persons A & B at 10.1–11.5s, Persons C & D at 20.2–21.6s) never collapse into one person.
-
-### 4. Continuous Appearance Counting
-* **Definition**: An appearance is one continuous visible segment.
-* **Temporal Continuity Gap ($\Delta t_{\text{gap}}$)**: Set to **$600\text{ms}$** (3 missed frames at 200ms sampling rate) to bridge brief head-turn occlusions without artificially splitting a continuous appearance.
-* **Quality Gate**: Discards microscopic ($< 40\text{px}$) or heavily blurred face detections.
+* **Calibrated Threshold**: **$0.44$** (tuned for 512-D ArcFace hypersphere embeddings).
+* **Co-Occurrence Conflict Constraint**: If any two segments/tracks overlap in time ($\Delta t \le 200\text{ms}$), they are strictly prohibited from merging into the same identity. This guarantees that co-occurring individuals sharing the same frame never collapse into one person.
+* **Appearance Counting**: Each merged cluster represents a single individual, and the count of continuous segments mapped to that cluster equals their total appearance count.
 
 ### 5. Multi-Factor Representative Shot Ranking
 Every candidate frame within a person's cluster is scored:
-$$\text{Score} = 0.25 S_{\text{front}} + 0.25 S_{\text{sharp}} + 0.20 S_{\text{eyes}} + 0.15 S_{\text{smile}} + 0.10 S_{\text{frame}}$$
+$$\text{Score} = 0.25 S_{\text{front}} + 0.25 S_{\text{sharp}} + 0.20 S_{\text{eyes}} + 0.15 S_{\text{smile}} + 0.15 S_{\text{frame}}$$
 
-* **$S_{\text{front}}$**: Frontality score penalizing yaw and pitch deviations beyond $55^\circ$.
+* **$S_{\text{front}}$**: Frontality score penalizing yaw and pitch deviations beyond $50^\circ$.
 * **$S_{\text{sharp}}$**: Laplacian variance of luminance channel normalized up to 150.
 * **$S_{\text{eyes}}$**: Probability of both eyes open; heavily penalizes blinking ($< 0.35$).
 * **$S_{\text{smile}}$**: Smiling probability mapped to $[0.5, 1.0]$.
-* **$S_{\text{frame}}$**: Evaluated against actual detection frame dimensions; penalizes bounding boxes positioned directly against frame boundaries to avoid clipped chins or foreheads.
+* **$S_{\text{frame}}$**: Distance from frame borders; penalizes bounding boxes positioned against frame boundaries to avoid clipped chins or foreheads.
 
 ---
 
