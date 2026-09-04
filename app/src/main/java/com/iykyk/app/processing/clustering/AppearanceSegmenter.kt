@@ -52,23 +52,7 @@ class AppearanceSegmenter(
             val unmatchedFaces = frameFaces.toMutableList()
             val matchedTrackIds = mutableSetOf<Int>()
 
-            // 1. First pass: Match by ML Kit tracking ID if available and valid
-            for (face in frameFaces) {
-                if (face.trackingId != null && face.trackingId >= 0) {
-                    val candidate = activeTracks.firstOrNull {
-                        !matchedTrackIds.contains(it.id) &&
-                        it.detections.last().trackingId == face.trackingId &&
-                        (face.frameTimestampMs - it.detections.last().frameTimestampMs <= maxContinuityGapMs)
-                    }
-                    if (candidate != null) {
-                        candidate.detections.add(face)
-                        matchedTrackIds.add(candidate.id)
-                        unmatchedFaces.remove(face)
-                    }
-                }
-            }
-
-            // 2. Second pass: Match remaining faces by spatial proximity / box overlap (IoU / Center Distance)
+            // Match faces to active tracks using spatial proximity AND embedding consistency
             for (face in unmatchedFaces.toList()) {
                 var bestTrack: SegmentTrack? = null
                 var bestScore = Float.MAX_VALUE
@@ -79,9 +63,23 @@ class AppearanceSegmenter(
                     val gap = face.frameTimestampMs - lastFace.frameTimestampMs
                     if (gap > maxContinuityGapMs) continue
 
-                    val distance = computeBoundingBoxDistance(lastFace.boundingBox, face.boundingBox)
-                    if (distance < 0.45f && distance < bestScore) {
-                        bestScore = distance
+                    val spatialDist = computeBoundingBoxDistance(lastFace.boundingBox, face.boundingBox)
+                    if (spatialDist > 0.42f) continue
+
+                    // If both detections have ArcFace embeddings, ensure they belong to the same person
+                    val embDist = if (lastFace.embedding != null && face.embedding != null &&
+                        lastFace.embedding.isNotEmpty() && face.embedding.isNotEmpty()) {
+                        com.iykyk.app.processing.embedder.FaceEmbedder.cosineDistance(lastFace.embedding, face.embedding)
+                    } else {
+                        0f
+                    }
+
+                    // Reject tracking jump across shot cuts or person swaps
+                    if (embDist > 0.40f) continue
+
+                    val combinedScore = spatialDist + (embDist * 0.5f)
+                    if (combinedScore < bestScore) {
+                        bestScore = combinedScore
                         bestTrack = track
                     }
                 }
@@ -93,7 +91,7 @@ class AppearanceSegmenter(
                 }
             }
 
-            // 3. Third pass: Remaining unmatched faces start new appearance tracks
+            // Remaining unmatched faces start new appearance tracks
             for (face in unmatchedFaces) {
                 val newTrack = SegmentTrack(id = nextTrackId++)
                 newTrack.detections.add(face)

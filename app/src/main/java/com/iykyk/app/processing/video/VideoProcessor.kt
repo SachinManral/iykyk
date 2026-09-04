@@ -89,6 +89,7 @@ class VideoProcessor(private val context: Context) {
                 // 1. Run ML Kit detection on each frame -> get list of faces
                 val detectedFaces = faceDetector.detectFaces(frameBitmap, timestampMs)
 
+                val isSolo = (detectedFaces.size == 1)
                 for (face in detectedFaces) {
                     // Face-level quality gate (reject extreme blur)
                     if (face.sharpnessScore > 0f && face.sharpnessScore < 8f) {
@@ -117,8 +118,8 @@ class VideoProcessor(private val context: Context) {
                         continue
                     }
 
-                    // 4. Compute multi-factor quality score
-                    val qualityScore = ShotRanker.computeSingleQualityScore(face)
+                    // 4. Compute multi-factor quality score (prioritizing solo portraits)
+                    val qualityScore = ShotRanker.computeSingleQualityScore(face, isSoloFrame = isSolo)
                     val completeFace = face.copy(
                         embedding = embedding,
                         qualityScore = qualityScore
@@ -187,7 +188,7 @@ class VideoProcessor(private val context: Context) {
                 ) to null
             )
 
-            val clusterer = IdentityClusterer(distanceThreshold = 0.44f)
+            val clusterer = IdentityClusterer(distanceThreshold = 0.40f)
             val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
 
             // 7. Select best representative moments and compose person identities
@@ -210,14 +211,17 @@ class VideoProcessor(private val context: Context) {
                 totalAppearancesCount += appearances.size
 
                 val bestDetection = cluster.representativeDetection
+                val otherFacesInFrame = allDetections.filter {
+                    it.frameTimestampMs == bestDetection.frameTimestampMs &&
+                    it.boundingBox != bestDetection.boundingBox
+                }
 
                 val fullFrame = frameExtractor.getFrameAt(retriever, bestDetection.frameTimestampMs)
                 val portraitCrop = fullFrame?.let {
                     extractGenerousPortraitCrop(
                         fullFrame = it,
-                        faceBox = bestDetection.boundingBox,
-                        sourceWidth = bestDetection.frameWidth,
-                        sourceHeight = bestDetection.frameHeight
+                        targetFace = bestDetection,
+                        otherFaces = otherFacesInFrame
                     )
                 }
                 fullFrame?.recycle()
@@ -268,25 +272,65 @@ class VideoProcessor(private val context: Context) {
 
     private fun extractGenerousPortraitCrop(
         fullFrame: Bitmap,
-        faceBox: RectF,
-        sourceWidth: Int,
-        sourceHeight: Int
+        targetFace: DetectedFaceInfo,
+        otherFaces: List<DetectedFaceInfo>
     ): Bitmap {
+        val sourceWidth = targetFace.frameWidth
+        val sourceHeight = targetFace.frameHeight
         val scaleX = if (sourceWidth > 0) fullFrame.width.toFloat() / sourceWidth.toFloat() else 1f
         val scaleY = if (sourceHeight > 0) fullFrame.height.toFloat() / sourceHeight.toFloat() else 1f
 
+        val faceBox = targetFace.boundingBox
         val centerX = faceBox.centerX() * scaleX
         val centerY = faceBox.centerY() * scaleY
         val faceWidth = faceBox.width() * scaleX
         val faceHeight = faceBox.height() * scaleY
 
         val faceDimension = maxOf(faceWidth, faceHeight)
-        val cropWidth = (faceDimension * 2.4f).toInt().coerceIn(120, fullFrame.width)
-        val cropHeight = (cropWidth * 1.33f).toInt().coerceIn(160, fullFrame.height)
+        val expansionFactor = if (otherFaces.isEmpty()) 2.0f else 1.6f
+        var cropWidth = (faceDimension * expansionFactor).coerceIn(120f, fullFrame.width.toFloat())
+        var cropHeight = (cropWidth * 1.33f).coerceIn(160f, fullFrame.height.toFloat())
 
-        val left = (centerX - (cropWidth / 2f)).toInt().coerceIn(0, fullFrame.width - cropWidth)
-        val top = (centerY - (cropHeight * 0.45f)).toInt().coerceIn(0, fullFrame.height - cropHeight)
+        var left = centerX - (cropWidth / 2f)
+        var right = left + cropWidth
+        var top = centerY - (cropHeight * 0.45f)
+        var bottom = top + cropHeight
 
-        return Bitmap.createBitmap(fullFrame, left, top, cropWidth, cropHeight)
+        // Clamp boundaries away from other people present in the same frame
+        for (other in otherFaces) {
+            val otherBox = other.boundingBox
+            val otherCenterX = otherBox.centerX() * scaleX
+            val otherLeft = otherBox.left * scaleX
+            val otherRight = otherBox.right * scaleX
+
+            // If other face is to the right
+            if (otherCenterX > centerX) {
+                val boundary = minOf(otherLeft - 10f, (centerX + otherCenterX) / 2f)
+                if (right > boundary) {
+                    right = maxOf(faceBox.right * scaleX + 15f, boundary)
+                }
+            }
+            // If other face is to the left
+            if (otherCenterX < centerX) {
+                val boundary = maxOf(otherRight + 10f, (centerX + otherCenterX) / 2f)
+                if (left < boundary) {
+                    left = minOf(faceBox.left * scaleX - 15f, boundary)
+                }
+            }
+        }
+
+        // Adjust top/bottom bounds within fullFrame
+        left = left.coerceIn(0f, (fullFrame.width - 80).toFloat())
+        right = right.coerceIn(left + 80f, fullFrame.width.toFloat())
+        val finalW = (right - left).toInt().coerceIn(80, fullFrame.width)
+
+        top = top.coerceIn(0f, (fullFrame.height - 80).toFloat())
+        bottom = bottom.coerceIn(top + 80f, fullFrame.height.toFloat())
+        val finalH = (bottom - top).toInt().coerceIn(80, fullFrame.height)
+
+        val cropLeft = left.toInt().coerceIn(0, fullFrame.width - finalW)
+        val cropTop = top.toInt().coerceIn(0, fullFrame.height - finalH)
+
+        return Bitmap.createBitmap(fullFrame, cropLeft, cropTop, finalW, finalH)
     }
 }

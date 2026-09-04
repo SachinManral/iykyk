@@ -82,16 +82,16 @@ class FaceEmbedder(
 
         val floatBuffer = FloatBuffer.allocate(1 * 3 * totalPixels)
 
-        // Channels: 0 = Blue, 1 = Green, 2 = Red (BGR NCHW)
+        // Channels: 0 = Red, 1 = Green, 2 = Blue (Standard RGB NCHW layout for InsightFace)
         for (c in 0 until 3) {
             var idx = 0
             for (h in 0 until inputSize) {
                 for (w in 0 until inputSize) {
                     val pixel = intValues[idx++]
                     val channelValue = when (c) {
-                        0 -> (pixel and 0xFF)          // Blue
+                        0 -> ((pixel shr 16) and 0xFF) // Red
                         1 -> ((pixel shr 8) and 0xFF)  // Green
-                        2 -> ((pixel shr 16) and 0xFF) // Red
+                        2 -> (pixel and 0xFF)          // Blue
                         else -> 0
                     }
                     floatBuffer.put((channelValue - 127.5f) / 128.0f)

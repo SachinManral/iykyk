@@ -8,15 +8,19 @@ object ShotRanker {
     /**
      * Computes the immediate multi-factor quality score for a single face detection.
      */
-    fun computeSingleQualityScore(det: DetectedFaceInfo): Float {
+    fun computeSingleQualityScore(
+        det: DetectedFaceInfo,
+        isSoloFrame: Boolean = true
+    ): Float {
         val frontal = computeFrontalityScore(det.headEulerAngleX, det.headEulerAngleY)
         val sharp = computeSharpnessScore(det.sharpnessScore)
         val eyes = computeEyesOpenScore(det.leftEyeOpenProbability, det.rightEyeOpenProbability)
         val expression = computeExpressionScore(det.smilingProbability)
         val framing = computeFramingScore(det)
+        val soloBonus = if (isSoloFrame) 0.20f else 0.0f
 
-        val score = 0.25f * frontal + 0.25f * sharp + 0.20f * eyes + 0.15f * expression + 0.15f * framing
-        return score.coerceIn(0f, 1f)
+        val baseScore = 0.25f * frontal + 0.25f * sharp + 0.20f * eyes + 0.15f * expression + 0.15f * framing
+        return (baseScore + soloBonus).coerceIn(0f, 1.20f)
     }
 
     /**
