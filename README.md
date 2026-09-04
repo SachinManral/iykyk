@@ -6,11 +6,11 @@ An on-device Android application that analyzes portrait event videos, identifies
 
 ## 🌟 Overview & Product Philosophy
 
-When people take short handheld videos of social gatherings, trips, or parties, key moments get buried in camera rolls. `iykyk` automatically curates these moments into a single, high-aesthetic group artifact.
+When people take handheld videos of social gatherings, trips, or parties, key moments get buried in camera rolls. `iykyk` automatically curates these moments into a single, high-aesthetic group artifact.
 
 * **100% On-Device & Private**: All video decoding, face detection, neural embedding extraction, and collage rendering happen locally on the phone. No video data or biometrics ever leave the device.
-* **Transparent Video Intelligence**: Rather than an opaque black box, the app tracks and displays continuous appearance counts for each person.
-* **Aesthetic Layout Engine**: Adapts dynamically to the number of people detected ($N = 1 \dots 8+$), preserving high-resolution background framing without tight square chops.
+* **Transparent Video Intelligence**: Rather than an opaque black box, the app tracks and displays continuous appearance counts for each person with timestamped filmstrips.
+* **Aesthetic Layout Engine**: Composes polaroid-style portrait tiles with real washi tape strips and watercolor floral stickers on an atmospheric 9:16 canvas.
 
 ---
 
@@ -18,12 +18,13 @@ When people take short handheld videos of social gatherings, trips, or parties, 
 
 The app follows a modern dark glassmorphic design system:
 
-1. **Home Screen**: Hero recap, quick-start gradient action (`+ Create New Collage`), recent collages gallery, and a floating capsule navigation dock.
-2. **Video Selection Screen**: Video gallery browser with duration and resolution metadata, plus sample test clips.
+1. **Home Screen**: Hero recap, quick-start gradient action (`+ Create New Collage`), recent collages dual-segment gallery, and a floating capsule navigation dock.
+2. **Video Selection Screen**: Video gallery browser with duration and resolution metadata, plus bundled test clips.
 3. **Processing Screen**: Real-time progress gauge with orbiting face avatars and a live pipeline checklist.
-4. **Your Collage Screen**: Dynamic portrait collage with celebratory confetti, "Save to Gallery", "Share", and quick access to people breakdown.
+4. **Collage Result Screen**: Finished portrait collage with celebratory confetti, direct native system sharing, Save to Gallery, and quick access to people breakdown.
 5. **People Breakdown Screen**: Detailed list of identified individuals with appearance counts and key-moment filmstrips.
-6. **Share Sheet**: "Private by design" assurance and native Android sharing targets.
+6. **History Tab**: Search, filter (Recent, Favorites, All), sort (Newest, Oldest, Most People, Duration), and deletion management.
+7. **Profile Tab**: Minimal, distraction-free "Coming Soon" screen with smooth back navigation.
 
 ---
 
@@ -32,19 +33,19 @@ The app follows a modern dark glassmorphic design system:
 The pipeline processes video frames off the main thread using Kotlin Coroutines and StateFlow:
 
 ```
-Video Input
+Video Input (.mp4 / .mov)
   │
-  ▼ [Adaptive Frame Sampling] (5 FPS / 200ms off main thread)
+  ▼ [Adaptive Frame Sampling] (5 FPS / 200ms off main thread via MediaMetadataRetriever)
   │
-  ▼ [ML Kit Face Detection] (5 facial landmarks, Euler angles, eye/smile probabilities, tracking IDs)
+  ▼ [Google ML Kit Face Detection] (5 facial landmarks, Euler angles, eye/smile probabilities, tracking IDs)
   │
   ▼ [Face-Level Laplacian Variance Quality Gate] (Rejects blurred face crops; preserves usable faces)
   │
   ▼ [5-Point Similarity Face Alignment] (Umeyama least-squares mapping to canonical 112x112 space)
   │
-  ▼ [On-Device ArcFace Embeddings] (InsightFace MobileFaceNet w600k_mbf.onnx -> 512D L2-normalized unit vector)
+  ▼ [On-Device ArcFace Neural Embeddings] (InsightFace MobileFaceNet w600k_mbf.onnx -> 512D L2-normalized unit vector)
   │
-  ▼ [Spatial Tracklet Appearance Tracking] (Continuous frame-to-frame box/IoU overlap grouping)
+  ▼ [Spatial Tracklet Appearance Tracking] (Continuous frame-to-frame box/IoU overlap grouping; max gap 800ms)
   │
   ▼ [Keyframe Subsampling] (Top 3-5 best-quality frames per appearance segment)
   │
@@ -54,7 +55,7 @@ Video Input
   │
   ▼ [Generous High-Res Portrait Cropping] (2.4x expansion from full 1080x1920 source frames)
   │
-  ▼ [Dynamic Collage Canvas Engine] (Instagram Story polaroid composition)
+  ▼ [Dynamic Collage Canvas Engine] (Layered polaroids + floral stickers + washi tape on 9:16 canvas)
 ```
 
 ---
@@ -71,24 +72,29 @@ Video Input
   - Right Mouth: $(70.7266, 92.2041)$
 * **Result**: Rotation-invariant, scale-normalized $112 \times 112$ canonical RGB crops that maximize ArcFace embedding fidelity.
 
-### 2. Face Embedding Model
-* **Model**: **MobileFaceNet-ArcFace ONNX** (`w600k_mbf.onnx`, packaged in `app/src/main/assets/`).
-* **Runtime**: `com.microsoft.onnxruntime:onnxruntime-android`.
+### 2. Embedding Model Used
+* **Model**: **MobileFaceNet-ArcFace ONNX** (`w600k_mbf.onnx`, packaged locally in `app/src/main/assets/`).
+* **Architecture**: MobileFaceNet with ArcFace (Additive Angular Margin Loss) feature extractor trained on WebFace600k / Glint360k.
+* **Runtime**: Microsoft ONNX Runtime Android (`ai.onnxruntime:onnxruntime-android`).
 * **Input**: $1 \times 3 \times 112 \times 112$ NCHW Float32 tensor normalized to $[-1.0, 1.0]$:
   $$\text{pixel}_{\text{norm}} = \frac{\text{pixel} - 127.5}{128.0}$$
-* **Output**: 512-dimensional unit-normalized embedding vector on the hypersphere ($L_2$ norm $= 1.0$).
+* **Output**: 512-dimensional unit-normalized embedding vector on the hypersphere ($L_2$ norm $\|\mathbf{e}\|_2 = 1.0$).
 
-### 3. Appearance Segmentation & Keyframe Pooling
-* **Frame-to-Frame Spatial Tracking**: Consecutive frame detections are associated using spatial proximity (center distance and bounding-box IoU) and temporal continuity ($\Delta t \le 600\text{ms}$).
+### 3. Similarity & Distance Threshold Chosen
+* **Metric**: Pairwise Cosine Distance & Cosine Similarity:
+  $$S(\mathbf{u}, \mathbf{v}) = \mathbf{u} \cdot \mathbf{v}, \quad D(\mathbf{u}, \mathbf{v}) = 1.0 - S(\mathbf{u}, \mathbf{v})$$
+* **Chosen Threshold**:
+  - **Cosine Distance Threshold**: **$D_{\text{threshold}} = 0.64$**
+  - **Equivalent Cosine Similarity**: **$S_{\text{threshold}} = 0.36$**
+* **Why this threshold was chosen**:
+  1. **Angular Margin Distribution**: In 512-D ArcFace embedding space, embeddings of the same individual across challenging lighting, head poses (yaw/pitch up to $45^\circ$), facial expressions, and video compression artifacts typically yield cosine distances between $0.30$ and $0.60$ ($S \in [0.40, 0.70]$). Different individuals have distances $> 0.75$ ($S < 0.25$).
+  2. **Average Linkage Agglomeration**: Using average linkage across the top 3–5 representative keyframes per tracklet creates a robust cluster centroid, smoothing out single-frame outliers.
+  3. **Temporal Co-Occurrence Conflict Exclusion**: A hard constraint ensures that if two tracks appear in the same video frame simultaneously ($\Delta t \le 200\text{ms}$), they are strictly prohibited from merging, regardless of embedding distance. This mathematically prevents distinct people from collapsing into a single cluster.
+
+### 4. Appearance Segmentation & Counting
+* **Frame-to-Frame Spatial Tracking**: Consecutive frame detections are associated using spatial proximity (center distance and bounding-box IoU) and temporal continuity ($\Delta t \le 800\text{ms}$).
 * **Keyframe Subsampling**: To avoid noisy frames degrading clustering accuracy, only the top **3–5 highest quality-scored frames** from each continuous segment are retained and pooled for global clustering.
-
-### 4. Global Agglomerative Clustering & Co-Occurrence Exclusion
-* **Clustering Strategy**: Global (order-independent) Agglomerative Hierarchical Clustering with **Average Linkage** on pooled segment keyframe embeddings.
-* **Metric**: Pairwise Cosine Distance:
-  $$D(\mathbf{u}, \mathbf{v}) = 1 - (\mathbf{u} \cdot \mathbf{v})$$
-* **Calibrated Threshold**: **$0.44$** (tuned for 512-D ArcFace hypersphere embeddings).
-* **Co-Occurrence Conflict Constraint**: If any two segments/tracks overlap in time ($\Delta t \le 200\text{ms}$), they are strictly prohibited from merging into the same identity. This guarantees that co-occurring individuals sharing the same frame never collapse into one person.
-* **Appearance Counting**: Each merged cluster represents a single individual, and the count of continuous segments mapped to that cluster equals their total appearance count.
+* **Appearance Count**: Each merged cluster represents a unique individual, and the count of distinct temporal segments mapped to that cluster equals their total appearance count.
 
 ### 5. Multi-Factor Representative Shot Ranking
 Every candidate frame within a person's cluster is scored:
@@ -99,6 +105,16 @@ $$\text{Score} = 0.25 S_{\text{front}} + 0.25 S_{\text{sharp}} + 0.20 S_{\text{e
 * **$S_{\text{eyes}}$**: Probability of both eyes open; heavily penalizes blinking ($< 0.35$).
 * **$S_{\text{smile}}$**: Smiling probability mapped to $[0.5, 1.0]$.
 * **$S_{\text{frame}}$**: Distance from frame borders; penalizes bounding boxes positioned against frame boundaries to avoid clipped chins or foreheads.
+
+---
+
+## 🎨 Visual Composition & Floral Layering
+
+The collage engine generates a $1080 \times 1920$ (9:16) image designed for social media sharing:
+* **Background Layer**: Atmospheric blurred video snapshot with dark vignette.
+* **Underlay Layer**: Organic watercolor floral stickers dynamically positioned behind photos.
+* **Polaroid Tiles**: White photo frames with realistic drop shadows, random tilt angles ($\pm 4^\circ$), and procedural translucent washi tape strips at the corners.
+* **Overlay Layer**: Subtle floral corner accents and handwritten branding typography.
 
 ---
 
@@ -118,7 +134,7 @@ $$\text{Score} = 0.25 S_{\text{front}} + 0.25 S_{\text{sharp}} + 0.20 S_{\text{e
 * **Min SDK**: API 26 (Android 8.0 Oreo)
 * **Target / Compile SDK**: API 34 / 35
 * **UI**: Jetpack Compose, Material 3, Navigation Compose
-* **Vision & ML**: Google ML Kit Face Detection, TensorFlow Lite (`mobile_face_net.tflite`)
+* **Vision & ML**: Google ML Kit Face Detection, Microsoft ONNX Runtime Android (`w600k_mbf.onnx`)
 * **Video Decoding**: AndroidX Media3 / `MediaMetadataRetriever`
 * **Concurrency**: Kotlin Coroutines & StateFlow
 
@@ -127,27 +143,46 @@ $$\text{Score} = 0.25 S_{\text{front}} + 0.25 S_{\text{sharp}} + 0.20 S_{\text{e
 ## 🚀 Build & Setup Instructions
 
 ### Prerequisites
-* Android Studio Ladybug / Meerkat or Command Line Tools
+* Android Studio (Ladybug / Meerkat or newer) or Command Line Tools
 * JDK 17 or JDK 21
 * Android SDK Platform 34/35 & Build Tools 34.0.0
+* Connected Android device (API 26+) or emulator
 
-### Steps to Build:
+### 1. Clone the Repository
 ```bash
-# 1. Clone repository
 git clone https://github.com/SachinManral/iykyk.git
 cd iykyk
+```
 
-# 2. Run unit tests
+### 2. Run Automated Unit Tests
+```bash
 ./gradlew testDebugUnitTest
+```
 
-# 3. Build Debug APK
+### 3. Build Debug APK
+```bash
 ./gradlew assembleDebug
 ```
 
-The output APK will be located at:
-`app/build/outputs/apk/debug/app-debug.apk`
+### 4. Install Directly on Connected Device
+```bash
+./gradlew installDebug
+```
+Or via ADB:
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ---
 
+## 📦 Deliverables & APK Location
+
+* **Git Repository**: [https://github.com/SachinManral/iykyk](https://github.com/SachinManral/iykyk)
+* **Working Debug APK**:
+  ```
+  app/build/outputs/apk/debug/app-debug.apk
+  ```
+
+---
 ## 📄 License
 MIT License.
