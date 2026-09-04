@@ -60,6 +60,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadAvailableVideos()
+        loadSavedCollages()
+    }
+
+    fun loadSavedCollages() {
+        viewModelScope.launch {
+            val saved = com.iykyk.app.data.storage.LocalCollageStorageManager.loadAllCollages(getApplication())
+            _recentCollages.value = saved
+        }
     }
 
     fun loadAvailableVideos() {
@@ -109,6 +117,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openCollage(collage: CollageResult) {
         _currentCollage.value = collage
+    }
+
+    fun deleteSavedCollage(collage: CollageResult) {
+        viewModelScope.launch {
+            com.iykyk.app.data.storage.LocalCollageStorageManager.deleteCollage(
+                getApplication(),
+                collage.creationTimestampMs
+            )
+            _recentCollages.value = _recentCollages.value.filter { it.creationTimestampMs != collage.creationTimestampMs }
+            if (_currentCollage.value?.creationTimestampMs == collage.creationTimestampMs) {
+                _currentCollage.value = null
+            }
+        }
     }
 
     fun selectCustomVideoUri(uri: Uri, title: String = "Custom Video.mp4") {
@@ -180,6 +201,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 _currentCollage.value = result
                 _recentCollages.value = listOf(result) + _recentCollages.value
+
+                // Persist to local disk storage
+                com.iykyk.app.data.storage.LocalCollageStorageManager.saveCollage(
+                    getApplication(),
+                    result
+                )
 
                 _pipelineProgress.value = _pipelineProgress.value.copy(
                     stage = PipelineStage.COMPLETED,
