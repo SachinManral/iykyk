@@ -10,7 +10,7 @@ import kotlin.math.hypot
  * and extracts top 3-5 representative keyframes per segment for global clustering.
  */
 class AppearanceSegmenter(
-    val maxContinuityGapMs: Long = 600L,
+    val maxContinuityGapMs: Long = 800L,
     val minSegmentDurationMs: Long = 0L,
     val minDetectionsPerSegment: Int = 1
 ) {
@@ -64,7 +64,7 @@ class AppearanceSegmenter(
                     if (gap > maxContinuityGapMs) continue
 
                     val spatialDist = computeBoundingBoxDistance(lastFace.boundingBox, face.boundingBox)
-                    if (spatialDist > 0.42f) continue
+                    if (spatialDist > 0.45f) continue
 
                     // If both detections have ArcFace embeddings, ensure they belong to the same person
                     val embDist = if (lastFace.embedding != null && face.embedding != null &&
@@ -75,7 +75,7 @@ class AppearanceSegmenter(
                     }
 
                     // Reject tracking jump across shot cuts or person swaps
-                    if (embDist > 0.40f) continue
+                    if (embDist > 0.42f) continue
 
                     val combinedScore = spatialDist + (embDist * 0.5f)
                     if (combinedScore < bestScore) {
@@ -101,9 +101,41 @@ class AppearanceSegmenter(
 
         finishedTracks.addAll(activeTracks)
 
+        // Stitch near-contiguous segments from momentary tracking gaps (<= 800ms)
+        val consolidated = mutableListOf<SegmentTrack>()
+        val sortedTracks = finishedTracks.filter { it.detections.isNotEmpty() }
+            .sortedBy { it.detections.first().frameTimestampMs }
+
+        for (track in sortedTracks) {
+            val candidate = consolidated.firstOrNull { existing ->
+                val lastDet = existing.detections.last()
+                val firstDet = track.detections.first()
+                val gap = firstDet.frameTimestampMs - lastDet.frameTimestampMs
+                if (gap in 1L..maxContinuityGapMs) {
+                    val spatialDist = computeBoundingBoxDistance(lastDet.boundingBox, firstDet.boundingBox)
+                    val embDist = if (lastDet.embedding != null && firstDet.embedding != null &&
+                        lastDet.embedding.isNotEmpty() && firstDet.embedding.isNotEmpty()) {
+                        com.iykyk.app.processing.embedder.FaceEmbedder.cosineDistance(lastDet.embedding, firstDet.embedding)
+                    } else {
+                        0f
+                    }
+                    spatialDist <= 0.42f && embDist <= 0.38f
+                } else {
+                    false
+                }
+            }
+
+            if (candidate != null) {
+                candidate.detections.addAll(track.detections)
+                candidate.detections.sortBy { it.frameTimestampMs }
+            } else {
+                consolidated.add(track)
+            }
+        }
+
         // Post-process each track: filter tiny flickers, select 3-5 best keyframes, build metadata
         val finalTracks = mutableListOf<SegmentTrack>()
-        for (track in finishedTracks) {
+        for (track in consolidated) {
             if (track.detections.size < minDetectionsPerSegment) continue
 
             val sortedByQuality = track.detections.sortedByDescending { it.qualityScore }

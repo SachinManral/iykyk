@@ -172,7 +172,7 @@ class VideoProcessor(private val context: Context) {
             )
 
             val segmenter = AppearanceSegmenter(
-                maxContinuityGapMs = 600L,
+                maxContinuityGapMs = 800L,
                 minDetectionsPerSegment = 1
             )
             val appearanceTracks = segmenter.buildAppearanceTracks(allDetections)
@@ -189,7 +189,7 @@ class VideoProcessor(private val context: Context) {
                 ) to null
             )
 
-            val clusterer = IdentityClusterer(distanceThreshold = 0.55f)
+            val clusterer = IdentityClusterer(distanceThreshold = 0.58f)
             val personClusters = clusterer.clusterSegmentTracks(appearanceTracks)
 
             // 7. Select best representative moments and compose person identities
@@ -212,17 +212,12 @@ class VideoProcessor(private val context: Context) {
                 totalAppearancesCount += appearances.size
 
                 val bestDetection = cluster.representativeDetection
-                val otherFacesInFrame = allDetections.filter {
-                    it.frameTimestampMs == bestDetection.frameTimestampMs &&
-                    it.boundingBox != bestDetection.boundingBox
-                }
 
                 val fullFrame = frameExtractor.getFrameAt(retriever, bestDetection.frameTimestampMs)
                 val portraitCrop = fullFrame?.let {
                     extractGenerousPortraitCrop(
                         fullFrame = it,
-                        targetFace = bestDetection,
-                        otherFaces = otherFacesInFrame
+                        targetFace = bestDetection
                     )
                 }
                 fullFrame?.recycle()
@@ -273,8 +268,7 @@ class VideoProcessor(private val context: Context) {
 
     private fun extractGenerousPortraitCrop(
         fullFrame: Bitmap,
-        targetFace: DetectedFaceInfo,
-        otherFaces: List<DetectedFaceInfo>
+        targetFace: DetectedFaceInfo
     ): Bitmap {
         val sourceWidth = targetFace.frameWidth
         val sourceHeight = targetFace.frameHeight
@@ -288,50 +282,13 @@ class VideoProcessor(private val context: Context) {
         val faceHeight = faceBox.height() * scaleY
 
         val faceDimension = maxOf(faceWidth, faceHeight)
-        val expansionFactor = if (otherFaces.isEmpty()) 1.9f else 1.5f
-        val cropWidth = (faceDimension * expansionFactor).coerceIn(120f, fullFrame.width.toFloat())
-        val cropHeight = (cropWidth * 1.33f).coerceIn(160f, fullFrame.height.toFloat())
+        // Focused 1.38x headshot width for aesthetic portrait framing (never captures adjacent persons)
+        val cropWidth = (faceDimension * 1.38f).coerceIn(100f, fullFrame.width.toFloat())
+        val cropHeight = (cropWidth * 1.33f).coerceIn(130f, fullFrame.height.toFloat())
 
-        var left = centerX - (cropWidth / 2f)
-        var right = left + cropWidth
-        var top = centerY - (cropHeight * 0.45f)
-        var bottom = top + cropHeight
+        val left = (centerX - (cropWidth / 2f)).toInt().coerceIn(0, fullFrame.width - cropWidth.toInt())
+        val top = (centerY - (cropHeight * 0.40f)).toInt().coerceIn(0, fullFrame.height - cropHeight.toInt())
 
-        // Clamp boundaries away from other people present in the same frame
-        for (other in otherFaces) {
-            val otherBox = other.boundingBox
-            val otherCenterX = otherBox.centerX() * scaleX
-            val otherLeft = otherBox.left * scaleX
-            val otherRight = otherBox.right * scaleX
-
-            // If other face is to the right
-            if (otherCenterX > centerX) {
-                val maxAllowedRight = minOf(otherLeft - 10f, (centerX + otherCenterX) / 2f)
-                if (right > maxAllowedRight) {
-                    right = maxAllowedRight.coerceAtLeast(faceBox.right * scaleX + 8f)
-                }
-            }
-            // If other face is to the left
-            if (otherCenterX < centerX) {
-                val minAllowedLeft = maxOf(otherRight + 10f, (centerX + otherCenterX) / 2f)
-                if (left < minAllowedLeft) {
-                    left = minAllowedLeft.coerceAtMost(faceBox.left * scaleX - 8f)
-                }
-            }
-        }
-
-        // Adjust top/bottom bounds within fullFrame
-        left = left.coerceIn(0f, (fullFrame.width - 80).toFloat())
-        right = right.coerceIn(left + 80f, fullFrame.width.toFloat())
-        val finalW = (right - left).toInt().coerceIn(80, fullFrame.width)
-
-        top = top.coerceIn(0f, (fullFrame.height - 80).toFloat())
-        bottom = bottom.coerceIn(top + 80f, fullFrame.height.toFloat())
-        val finalH = (bottom - top).toInt().coerceIn(80, fullFrame.height)
-
-        val cropLeft = left.toInt().coerceIn(0, fullFrame.width - finalW)
-        val cropTop = top.toInt().coerceIn(0, fullFrame.height - finalH)
-
-        return Bitmap.createBitmap(fullFrame, cropLeft, cropTop, finalW, finalH)
+        return Bitmap.createBitmap(fullFrame, left, top, cropWidth.toInt(), cropHeight.toInt())
     }
 }

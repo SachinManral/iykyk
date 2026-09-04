@@ -11,7 +11,7 @@ import kotlin.math.sqrt
  * and Co-Occurrence Conflict Constraints for ArcFace 512-D embeddings.
  */
 class IdentityClusterer(
-    private val distanceThreshold: Float = 0.55f
+    private val distanceThreshold: Float = 0.58f
 ) {
 
     data class PersonCluster(
@@ -59,7 +59,7 @@ class IdentityClusterer(
                         continue
                     }
 
-                    val dist = averageLinkageDistance(nodes[i], nodes[j])
+                    val dist = computeClusterDistance(nodes[i], nodes[j])
                     if (dist < bestDistance) {
                         bestDistance = dist
                         bestI = i
@@ -109,27 +109,40 @@ class IdentityClusterer(
         return clusters.map { it.allDetections }
     }
 
-    private fun averageLinkageDistance(
+    private fun computeClusterDistance(
         n1: TrackClusterNode,
         n2: TrackClusterNode
     ): Float {
-        var total = 0f
-        var count = 0
+        // 1. Centroid Cosine Distance
+        val centroidDist = FaceEmbedder.cosineDistance(n1.centroidEmbedding, n2.centroidEmbedding)
 
+        // 2. Pairwise distances between representative keyframes
+        val pairDistances = mutableListOf<Float>()
         for (t1 in n1.tracks) {
             for (t2 in n2.tracks) {
                 val e1 = t1.representativeKeyframes.mapNotNull { it.embedding }
                 val e2 = t2.representativeKeyframes.mapNotNull { it.embedding }
                 for (v1 in e1) {
                     for (v2 in e2) {
-                        total += FaceEmbedder.cosineDistance(v1, v2)
-                        count++
+                        pairDistances.add(FaceEmbedder.cosineDistance(v1, v2))
                     }
                 }
             }
         }
 
-        return if (count > 0) total / count else Float.MAX_VALUE
+        if (pairDistances.isEmpty()) return centroidDist
+
+        pairDistances.sort()
+        // Trimmed average of top 60% closest pairs to discard noisy pose outlier pairs
+        val takeCount = maxOf(1, (pairDistances.size * 0.60f).toInt())
+        var sum = 0f
+        for (i in 0 until takeCount) {
+            sum += pairDistances[i]
+        }
+        val trimmedAvgDist = sum / takeCount
+
+        // Combined robust metric: 50% centroid distance + 50% trimmed keyframe distance
+        return (centroidDist * 0.5f + trimmedAvgDist * 0.5f)
     }
 
     private fun hasCoOccurrenceConflict(
