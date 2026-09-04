@@ -1,24 +1,57 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
+# Build files & outputs
+.gradle/
+build/
+**/build/
 /build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
 /app/build
+/captures
+.externalNativeBuild/
+.cxx/
 *.apk
+*.ap_
 *.aab
-.kotlin
-.agents
+*.dex
+*.class
 *.hprof
+*.pyc
 
-# Media & sample assets
+# IDEs & editors
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.kotlin/
+.project
+.classpath
+.settings/
+*.swp
+*~
+*.bak
+
+# Local secrets & credentials
+local.properties
+/local.properties
+*.key
+*.keystore
+*.jks
+secrets.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Agent & AI workspace files
+.agents/
+.gemini/
+
+# Large test videos & sample assets
 Sample Videos/
 Sample UI/
 *.mp4
 *.MOV
 *.avi
-
+*.mkv
+*.webm
