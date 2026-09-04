@@ -73,6 +73,7 @@ import com.iykyk.app.presentation.theme.SurfaceDarkStroke
 import com.iykyk.app.presentation.theme.TextMuted
 import com.iykyk.app.presentation.theme.TextPrimary
 import com.iykyk.app.presentation.theme.TextSecondary
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -389,7 +390,7 @@ private fun RadialProgressWithOrbit(
             )
         }
 
-        // 2. Outer Orbital Track Canvas with delicate guide ticks and floating light sparks
+        // 2. Outer Orbital Track Canvas
         Canvas(modifier = Modifier.size(290.dp)) {
             val orbitRadius = size.minDimension / 2f
 
@@ -402,69 +403,9 @@ private fun RadialProgressWithOrbit(
                     pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 12f), 0f)
                 )
             )
-
-            // Dynamic floating neon sparks along the orbit
-            val sparkAngles = listOf(20f, 95f, 185f, 280f)
-            val sparkColors = listOf(Color(0xFFF43F5E), Color(0xFF06B6D4), Color(0xFF8B5CF6), Color(0xFFF59E0B))
-            sparkAngles.forEachIndexed { i, baseDeg ->
-                val rad = Math.toRadians((baseDeg + orbitAngle).toDouble())
-                val x = center.x + (orbitRadius * cos(rad)).toFloat()
-                val y = center.y + (orbitRadius * sin(rad)).toFloat()
-                
-                // Spark aura
-                drawCircle(
-                    color = sparkColors[i % sparkColors.size].copy(alpha = 0.4f),
-                    radius = 5.dp.toPx(),
-                    center = Offset(x, y)
-                )
-                // Spark core
-                drawCircle(
-                    color = Color.White,
-                    radius = 2.dp.toPx(),
-                    center = Offset(x, y)
-                )
-            }
         }
 
-        // 3. Orbiting Face Avatars: ONLY displayed after distinct faces are discovered
-        val orbitRadiusDp = 138.dp
-        val avatarCount = discoveredAvatars.size
-
-        if (avatarCount > 0) {
-            discoveredAvatars.forEachIndexed { index, avatarBmp ->
-                val baseAngle = 270f + (index * (360f / avatarCount))
-                val totalAngleRad = Math.toRadians((baseAngle + orbitAngle * 0.20f).toDouble())
-                val offsetX = (orbitRadiusDp.value * cos(totalAngleRad)).dp
-                val offsetY = (orbitRadiusDp.value * sin(totalAngleRad)).dp
-                val borderColor = haloColors[index % haloColors.size]
-
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(offsetX.roundToPx(), offsetY.roundToPx()) }
-                        .size(56.dp)
-                        .shadow(16.dp, CircleShape, ambientColor = borderColor, spotColor = borderColor)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1E1538))
-                        .border(
-                            width = 2.5.dp,
-                            brush = Brush.linearGradient(
-                                listOf(borderColor, borderColor.copy(alpha = 0.6f))
-                            ),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        bitmap = avatarBmp.asImageBitmap(),
-                        contentDescription = "Detected Face ${index + 1}",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-        }
-
-        // 4. Central Radial Gauge: Uncompleted Track + Animated Active Arc + Leading Bead
+        // 3. Central Radial Gauge: Uncompleted Track + Animated Active Arc + Leading Bead
         Canvas(modifier = Modifier.size(184.dp)) {
             val strokeWidth = 12.dp.toPx()
             val arcSize = size.minDimension - strokeWidth
@@ -526,45 +467,149 @@ private fun RadialProgressWithOrbit(
             }
         }
 
-        // 5. Central Glass Dial Disc: Frosted Dark Badge with Percentage & Clean Stage Chip
-        Box(
-            modifier = Modifier
-                .size(136.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF20163F),
-                            Color(0xFF110B24)
-                        )
-                    )
-                )
-                .border(1.2.dp, Color(0x3D8B5CF6), CircleShape),
-            contentAlignment = Alignment.Center
+        // 4. Center Content (No inner black circle): Clean Percentage & 2-Line Status
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 16.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 10.dp)
-            ) {
-                Text(
-                    text = "$progressPercent%",
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White,
-                    letterSpacing = (-0.5).sp
+            Text(
+                text = "$progressPercent%",
+                fontSize = 42.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                letterSpacing = (-0.5).sp
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Choosing best\nmoments...",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFC084FC),
+                textAlign = TextAlign.Center,
+                lineHeight = 17.sp
+            )
+        }
+
+        // 5. Free-Floating Orbiting Face Avatars: Floating randomly and organically (Rendered above the circle)
+        val avatarCount = discoveredAvatars.size
+
+        if (avatarCount > 0) {
+            val baseRadiiDp = listOf(136.dp, 144.dp, 134.dp, 146.dp, 140.dp)
+
+            discoveredAvatars.forEachIndexed { index, avatarBmp ->
+                // Distribute evenly in distinct sectors (360 / N) to strictly prevent overlapping
+                val sectorBaseAngle = (index * (360f / avatarCount))
+                val baseRadius = baseRadiiDp[index % baseRadiiDp.size]
+                val phase = index * 1.45f
+
+                // Random organic 2D floating physics
+                val radialDrift = (sin(Math.toRadians((orbitAngle * 1.8f + phase * 60f).toDouble())).toFloat() * 7f) +
+                        (cos(Math.toRadians((orbitAngle * 1.1f + index * 40f).toDouble())).toFloat() * 4f)
+                val effectiveRadiusDp = (baseRadius.value + radialDrift).dp
+
+                val angularDrift = (sin(Math.toRadians((orbitAngle * 0.9f + phase * 50f).toDouble())).toFloat() * 9f) +
+                        (cos(Math.toRadians((orbitAngle * 0.5f + index * 80f).toDouble())).toFloat() * 5f)
+                val totalAngleRad = Math.toRadians((sectorBaseAngle + orbitAngle * 0.18f + angularDrift).toDouble())
+
+                val offsetX = (effectiveRadiusDp.value * cos(totalAngleRad)).dp
+                val offsetY = (effectiveRadiusDp.value * sin(totalAngleRad)).dp
+                val borderColor = haloColors[index % haloColors.size]
+
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(offsetX.roundToPx(), offsetY.roundToPx()) }
+                        .size(56.dp)
+                        .shadow(18.dp, CircleShape, ambientColor = borderColor, spotColor = borderColor)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1E1538))
+                        .border(
+                            width = 2.5.dp,
+                            brush = Brush.linearGradient(
+                                listOf(borderColor, borderColor.copy(alpha = 0.6f))
+                            ),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!avatarBmp.isRecycled) {
+                        Image(
+                            bitmap = avatarBmp.asImageBitmap(),
+                            contentDescription = "Detected Face ${index + 1}",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+        }
+
+        // 6. Animated Glowing Shining Particles with Light Tails
+        Canvas(modifier = Modifier.size(330.dp)) {
+            val centerOffset = Offset(size.width / 2f, size.height / 2f)
+            val particleSeeds = listOf(
+                Triple(25f, 80.dp, true) to Color(0xFFFBBF24),   // Gold with tail
+                Triple(65f, 155.dp, false) to Color(0xFF06B6D4), // Cyan spark
+                Triple(110f, 95.dp, true) to Color.White,        // Diamond white with tail
+                Triple(155f, 150.dp, false) to Color(0xFFF43F5E),// Pink spark
+                Triple(205f, 85.dp, true) to Color(0xFFA855F7),  // Purple with tail
+                Triple(250f, 158.dp, false) to Color(0xFF38BDF8),// Sky blue spark
+                Triple(295f, 105.dp, true) to Color(0xFFFBBF24), // Gold with tail
+                Triple(340f, 150.dp, false) to Color.White       // Diamond white spark
+            )
+
+            particleSeeds.forEachIndexed { i, pair ->
+                val (baseAngle, baseRad, hasTail) = pair.first
+                val color = pair.second
+
+                // Dynamic drifting float
+                val movingAngle = baseAngle + orbitAngle * (0.16f + i * 0.025f)
+                val movingRad = baseRad.toPx() + sin(Math.toRadians((orbitAngle * 2f + i * 50f).toDouble())).toFloat() * 9f
+                val radMath = Math.toRadians(movingAngle.toDouble())
+
+                val gx = centerOffset.x + (movingRad * cos(radMath)).toFloat()
+                val gy = centerOffset.y + (movingRad * sin(radMath)).toFloat()
+                val centerPt = Offset(gx, gy)
+
+                // Twinkling scale & glow
+                val twinkle = 0.40f + 0.60f * abs(sin(Math.toRadians((orbitAngle * 2.8f + i * 55f).toDouble())).toFloat())
+                val auraSize = 5.5.dp.toPx() * twinkle
+                val coreSize = 2.2.dp.toPx() * twinkle
+
+                // Light trail / tail for particles with tails
+                if (hasTail) {
+                    val tailLength = 14.dp.toPx() * twinkle
+                    val tailAngleRad = Math.toRadians((movingAngle - 90f).toDouble())
+                    val tailEndX = gx - (tailLength * cos(tailAngleRad)).toFloat()
+                    val tailEndY = gy - (tailLength * sin(tailAngleRad)).toFloat()
+
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(color.copy(alpha = 0.65f * twinkle), Color.Transparent),
+                            start = centerPt,
+                            end = Offset(tailEndX, tailEndY)
+                        ),
+                        start = centerPt,
+                        end = Offset(tailEndX, tailEndY),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Outer glowing aura
+                drawCircle(
+                    color = color.copy(alpha = 0.45f * twinkle),
+                    radius = auraSize,
+                    center = centerPt
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Choosing best moments...",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFFC084FC),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                // Bright glowing core point
+                drawCircle(
+                    color = Color.White,
+                    radius = coreSize,
+                    center = centerPt
                 )
             }
         }

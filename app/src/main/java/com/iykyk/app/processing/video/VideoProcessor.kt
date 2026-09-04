@@ -75,8 +75,25 @@ class VideoProcessor(private val context: Context) {
         )
 
         val allDetections = mutableListOf<DetectedFaceInfo>()
-        val discoveredAvatars = mutableListOf<Bitmap>()
-        val discoveredEmbeddings = mutableListOf<FloatArray>()
+
+        class OnlinePerson(
+            var bestQuality: Float,
+            var bestAvatar: Bitmap,
+            val embeddings: MutableList<FloatArray>
+        ) {
+            fun matches(query: FloatArray, threshold: Float = 0.25f): Boolean {
+                return embeddings.any { existing ->
+                    computeCosineSimilarity(existing, query) > threshold
+                }
+            }
+            fun addEmbedding(emb: FloatArray) {
+                if (embeddings.size < 10) {
+                    embeddings.add(emb)
+                }
+            }
+        }
+
+        val onlinePersons = mutableListOf<OnlinePerson>()
 
         val retriever = MediaMetadataRetriever()
         retriever.setDataSource(context, videoUri)
@@ -137,17 +154,27 @@ class VideoProcessor(private val context: Context) {
                     )
                     allDetections.add(completeFace)
 
-                    // 5. Distinct avatar collection: only add clean, distinct faces (not 5 identical shots)
-                    if (discoveredAvatars.size < 5 && face.sharpnessScore > 8f) {
-                        val isDistinct = discoveredEmbeddings.none { existing ->
-                            computeCosineSimilarity(existing, embedding) > 0.65f
-                        }
-                        if (isDistinct || discoveredAvatars.isEmpty()) {
-                            val cleanAvatar = extractSquareAvatarCrop(frameBitmap, face)
-                            if (cleanAvatar != null) {
-                                discoveredAvatars.add(cleanAvatar)
-                                discoveredEmbeddings.add(embedding)
+                    // 5. Online Person Clustering: update existing person or add new unique person (STRICTLY NO DUPLICATES)
+                    val matchedPerson = onlinePersons.firstOrNull { it.matches(embedding, threshold = 0.25f) }
+                    if (matchedPerson != null) {
+                        matchedPerson.addEmbedding(embedding)
+                        if (qualityScore > matchedPerson.bestQuality) {
+                            val newAvatar = extractSquareAvatarCrop(frameBitmap, face)
+                            if (newAvatar != null) {
+                                matchedPerson.bestAvatar = newAvatar
+                                matchedPerson.bestQuality = qualityScore
                             }
+                        }
+                    } else if (onlinePersons.size < 5 && face.sharpnessScore > 6f) {
+                        val cleanAvatar = extractSquareAvatarCrop(frameBitmap, face)
+                        if (cleanAvatar != null) {
+                            onlinePersons.add(
+                                OnlinePerson(
+                                    bestQuality = qualityScore,
+                                    bestAvatar = cleanAvatar,
+                                    embeddings = mutableListOf(embedding)
+                                )
+                            )
                         }
                     }
                 }
@@ -158,13 +185,14 @@ class VideoProcessor(private val context: Context) {
                     val liveDetectSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
                     val liveMap = stageDurations.toMutableMap()
                     liveMap[PipelineStage.DETECTING_FACES] = liveDetectSecs
+                    val currentLiveAvatars = onlinePersons.map { it.bestAvatar }
                     emit(
                         PipelineProgress(
                             stage = PipelineStage.DETECTING_FACES,
                             progressPercent = progress.coerceIn(15, 50),
                             statusMessage = "Detecting faces in video...",
                             detectedFacesCount = allDetections.size,
-                            discoveredAvatars = discoveredAvatars.toList(),
+                            discoveredAvatars = currentLiveAvatars,
                             stageDurationsSeconds = liveMap
                         ) to null
                     )
@@ -176,13 +204,14 @@ class VideoProcessor(private val context: Context) {
             stageStartTime = System.currentTimeMillis()
 
             // 5. Grouping identities
+            val currentAvatars = onlinePersons.map { it.bestAvatar }
             emit(
                 PipelineProgress(
                     stage = PipelineStage.GROUPING_IDENTITIES,
                     progressPercent = 55,
                     statusMessage = "Grouping identities...",
                     detectedFacesCount = allDetections.size,
-                    discoveredAvatars = discoveredAvatars.toList(),
+                    discoveredAvatars = currentAvatars,
                     stageDurationsSeconds = stageDurations.toMap()
                 ) to null
             )
@@ -201,6 +230,7 @@ class VideoProcessor(private val context: Context) {
             stageStartTime = System.currentTimeMillis()
 
             // 6. Counting appearances
+            val currentStageAvatars = onlinePersons.map { it.bestAvatar }
             emit(
                 PipelineProgress(
                     stage = PipelineStage.COUNTING_APPEARANCES,
@@ -208,13 +238,13 @@ class VideoProcessor(private val context: Context) {
                     statusMessage = "Counting appearances...",
                     detectedFacesCount = allDetections.size,
                     discoveredPeopleCount = personClusters.size,
-                    discoveredAvatars = discoveredAvatars.toList(),
+                    discoveredAvatars = currentStageAvatars,
                     stageDurationsSeconds = stageDurations.toMap()
                 ) to null
             )
 
             val personIdentities = mutableListOf<PersonIdentity>()
-            val clusteredAvatars = mutableListOf<Bitmap>()
+            val uniquePersonAvatars = mutableListOf<Bitmap>()
             var totalAppearancesCount = 0
 
             for ((clusterIdx, cluster) in personClusters.withIndex()) {
@@ -237,8 +267,8 @@ class VideoProcessor(private val context: Context) {
                 val avatar = fullFrame?.let {
                     extractSquareAvatarCrop(it, bestDetection)
                 }
-                if (avatar != null && clusteredAvatars.size < 5) {
-                    clusteredAvatars.add(avatar)
+                if (avatar != null && uniquePersonAvatars.size < 6) {
+                    uniquePersonAvatars.add(avatar)
                 }
                 fullFrame?.recycle()
 
@@ -255,7 +285,7 @@ class VideoProcessor(private val context: Context) {
                 personIdentities.add(person)
             }
 
-            val finalAvatars = if (clusteredAvatars.isNotEmpty()) clusteredAvatars else discoveredAvatars
+            val finalAvatars = if (uniquePersonAvatars.isNotEmpty()) uniquePersonAvatars else currentStageAvatars
 
             val countSecs = ((System.currentTimeMillis() - stageStartTime) / 1000).toInt().coerceAtLeast(1)
             stageDurations[PipelineStage.COUNTING_APPEARANCES] = countSecs
@@ -293,7 +323,7 @@ class VideoProcessor(private val context: Context) {
                     statusMessage = "Composing collage...",
                     detectedFacesCount = allDetections.size,
                     discoveredPeopleCount = personIdentities.size,
-                    discoveredAvatars = discoveredAvatars.toList(),
+                    discoveredAvatars = finalAvatars.toList(),
                     stageDurationsSeconds = stageDurations.toMap()
                 ) to finalResult
             )
