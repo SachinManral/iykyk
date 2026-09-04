@@ -61,6 +61,9 @@ import com.iykyk.app.presentation.theme.TextPrimary
 import com.iykyk.app.presentation.theme.TextSecondary
 import kotlinx.coroutines.delay
 
+import com.iykyk.app.graphics.CollageTheme
+import com.iykyk.app.presentation.theme.PrimaryGradient
+
 @Composable
 fun CollageResultScreen(
     viewModel: MainViewModel,
@@ -71,6 +74,7 @@ fun CollageResultScreen(
 ) {
     val context = LocalContext.current
     val currentCollage by viewModel.currentCollage.collectAsState()
+    val activeTheme by viewModel.selectedCollageTheme.collectAsState()
     val isSaving by viewModel.isSavingToGallery.collectAsState()
     val toastMessage by viewModel.saveToastMessage.collectAsState()
 
@@ -126,7 +130,7 @@ fun CollageResultScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
 
                 // Celebratory Headline matching Sample UI
@@ -149,7 +153,62 @@ fun CollageResultScreen(
                             fontWeight = FontWeight.Medium
                         )
                     }
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Aesthetic Dynamic Template & Remix Bar
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SurfaceDark.copy(alpha = 0.85f))
+                            .border(1.dp, SurfaceDarkStroke, RoundedCornerShape(16.dp))
+                            .clickable {
+                                viewModel.remixCollageStyle()
+                            }
+                            .padding(vertical = 10.dp, horizontal = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "✨",
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Auto-Designed Template",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Tap to roll a new creative style",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(PrimaryGradient)
+                                .shadow(6.dp, RoundedCornerShape(12.dp))
+                                .padding(vertical = 7.dp, horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🎲 Remix",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(18.dp))
                 }
 
                 // Collage Canvas Image View Frame
