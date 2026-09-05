@@ -175,10 +175,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 📦 Deliverables & APK Location
+## 📦 Deliverables & Submission Links
 
 * **Git Repository**: [https://github.com/SachinManral/iykyk](https://github.com/SachinManral/iykyk)
-* **Working Debug APK**:
+* **Google Drive (Demo Video & Debug APK)**: [https://drive.google.com/drive/folders/18tAKBXmvk0J04EZNU8RhbW2rnITWdqBv?usp=drive_link](https://drive.google.com/drive/folders/18tAKBXmvk0J04EZNU8RhbW2rnITWdqBv?usp=drive_link)
+* **Local Debug APK Build**:
   ```
   app/build/outputs/apk/debug/app-debug.apk
   ```
@@ -186,3 +187,4 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ---
 ## 📄 License
 MIT License.
+
